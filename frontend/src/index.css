@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-void text-ember-50 font-body antialiased;
+    background-image: radial-gradient(circle at 50% 0%, rgba(255, 149, 0, 0.10), transparent 55%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-ember-500/30 text-ember-50;
+  }
+}
+
+@layer components {
+  .scrollbar-ember::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-ember::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-ember::-webkit-scrollbar-thumb {
+    @apply bg-ember-800/60 rounded-full;
+  }
+}
