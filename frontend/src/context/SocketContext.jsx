@@ -23,6 +23,7 @@ export function SocketProvider({ children }) {
     socket.on('online_users', (users) => setOnlineUsers(users));
 
     return () => {
+      socket.off('online_users');
       socket.disconnect();
     };
   }, [token, user]);
