@@ -17,7 +17,7 @@ router.get('/search', requireAuth, async (req, res) => {
       _id: { $ne: req.userId },
       username: { $regex: q, $options: 'i' },
     })
-      .select('username')
+      .select('username avatar lastSeen')
       .limit(15);
 
     const results = await Promise.all(
@@ -30,7 +30,7 @@ router.get('/search', requireAuth, async (req, res) => {
             status = String(relation.requester) === String(req.userId) ? 'pending_sent' : 'pending_received';
           }
         }
-        return { _id: u._id, username: u.username, status };
+        return { _id: u._id, username: u.username, avatar: u.avatar, lastSeen: u.lastSeen, status };
       })
     );
 
@@ -64,7 +64,7 @@ router.post('/request', requireAuth, async (req, res) => {
       status: 'pending',
     });
 
-    const populated = await request.populate('requester', 'username');
+    const populated = await request.populate('requester', 'username avatar');
     emitToUser(req.app.locals.io, target._id, 'friend_request_received', {
       _id: populated._id,
       requester: populated.requester,
@@ -85,7 +85,7 @@ router.post('/request', requireAuth, async (req, res) => {
 router.get('/requests/incoming', requireAuth, async (req, res) => {
   try {
     const requests = await Friendship.find({ recipient: req.userId, status: 'pending' })
-      .populate('requester', 'username')
+      .populate('requester', 'username avatar')
       .sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) {
@@ -97,7 +97,7 @@ router.get('/requests/incoming', requireAuth, async (req, res) => {
 router.get('/requests/outgoing', requireAuth, async (req, res) => {
   try {
     const requests = await Friendship.find({ requester: req.userId, status: 'pending' })
-      .populate('recipient', 'username')
+      .populate('recipient', 'username avatar')
       .sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) {
@@ -123,10 +123,12 @@ router.post('/requests/:id/accept', requireAuth, async (req, res) => {
     request.status = 'accepted';
     await request.save();
 
-    const me = await User.findById(req.userId).select('username');
+    const me = await User.findById(req.userId).select('username avatar lastSeen');
     emitToUser(req.app.locals.io, request.requester, 'friend_request_accepted', {
       _id: me._id,
       username: me.username,
+      avatar: me.avatar,
+      lastSeen: me.lastSeen,
     });
 
     res.json({ message: 'Friend request accepted' });
@@ -161,8 +163,8 @@ router.get('/', requireAuth, async (req, res) => {
       status: 'accepted',
       $or: [{ requester: req.userId }, { recipient: req.userId }],
     })
-      .populate('requester', 'username')
-      .populate('recipient', 'username');
+      .populate('requester', 'username avatar lastSeen')
+      .populate('recipient', 'username avatar lastSeen');
 
     const friends = friendships.map((f) => {
       const isRequester = String(f.requester._id) === String(req.userId);

@@ -39,8 +39,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateAvatar = (avatarUrl) => {
+    setUser((prev) => {
+      const next = { ...prev, avatar: avatarUrl };
+      localStorage.setItem('ember_user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateAvatar }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import Message from '../models/Message.js';
 import Friendship from '../models/Friendship.js';
+import User from '../models/User.js';
 
 // userId -> Set of socket ids (a user can have multiple tabs/devices open)
 export const onlineUsers = new Map();
@@ -38,16 +39,17 @@ export function initSocket(io) {
     }
   });
 
-  io.on('connection', (socket) => {
+  io.on('connection', async (socket) => {
     const userId = socket.userId;
     addSocket(userId, socket.id);
     io.emit('online_users', Array.from(onlineUsers.keys()));
 
-    socket.on('send_message', async ({ receiver, content }, callback) => {
+    socket.on('send_message', async ({ receiver, content, type, mediaUrl, duration }, callback) => {
       try {
-        if (!receiver || !content?.trim()) {
-          return callback?.(null);
-        }
+        const messageType = type || 'text';
+        if (!receiver) return callback?.({ error: 'No recipient specified' });
+        if (messageType === 'text' && !content?.trim()) return callback?.(null);
+        if (messageType !== 'text' && !mediaUrl) return callback?.({ error: 'Missing media' });
 
         // Only accepted friends can exchange messages
         const relation = await Friendship.findBetween(userId, receiver);
@@ -58,7 +60,11 @@ export function initSocket(io) {
         const message = await Message.create({
           sender: userId,
           receiver,
-          content: content.trim(),
+          conversationId: Message.conversationIdFor(userId, receiver),
+          type: messageType,
+          content: content?.trim() || '',
+          mediaUrl: mediaUrl || '',
+          duration: duration || 0,
         });
 
         emitToUser(io, receiver, 'receive_message', message);
@@ -69,9 +75,26 @@ export function initSocket(io) {
       }
     });
 
-    socket.on('disconnect', () => {
+    // Typing indicator: relayed only, never persisted
+    socket.on('typing', ({ receiver, isTyping }) => {
+      if (!receiver) return;
+      emitToUser(io, receiver, 'typing', { from: userId, isTyping: !!isTyping });
+    });
+
+    socket.on('disconnect', async () => {
       removeSocket(userId, socket.id);
       io.emit('online_users', Array.from(onlineUsers.keys()));
+
+      // Only stamp lastSeen once every tab/device for this user has closed
+      if (!onlineUsers.has(userId)) {
+        try {
+          const lastSeen = new Date();
+          await User.findByIdAndUpdate(userId, { lastSeen });
+          io.emit('user_last_seen', { userId, lastSeen });
+        } catch (err) {
+          console.error('lastSeen update error:', err.message);
+        }
+      }
     });
   });
 }

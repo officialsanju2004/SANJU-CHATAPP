@@ -16,6 +16,14 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+    avatar: {
+      type: String, // relative URL e.g. /uploads/avatars/xxx.jpg
+      default: '',
+    },
+    lastSeen: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );
@@ -32,7 +40,8 @@ userSchema.methods.comparePassword = function (candidate) {
 };
 
 userSchema.methods.toSafeObject = function () {
-  return { id: this._id, username: this.username };
+  return { id: this._id, username: this.username, avatar: this.avatar };
 };
 
 export default mongoose.model('User', userSchema);
+
