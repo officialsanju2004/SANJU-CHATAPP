@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import Message from '../models/Message.js';
 import Friendship from '../models/Friendship.js';
 import User from '../models/User.js';
+import { sendPushToUser } from '../utils/webpush.js';
 
 // userId -> Set of socket ids (a user can have multiple tabs/devices open)
 export const onlineUsers = new Map();
@@ -55,6 +56,16 @@ export function emitToUser(io, userId, event, payload) {
   sockets.forEach((sid) => io.to(sid).emit(event, payload));
 }
 
+export function isUserOnline(userId) {
+  return onlineUsers.has(String(userId));
+}
+
+function previewFor(message) {
+  if (message.type === 'image') return '📷 Photo';
+  if (message.type === 'voice') return '🎤 Voice message';
+  return message.content;
+}
+
 export function initSocket(io) {
   // Authenticate every socket connection using the same JWT used for REST calls
   io.use((socket, next) => {
@@ -99,6 +110,22 @@ export function initSocket(io) {
 
         emitToUser(io, receiver, 'receive_message', message);
         callback?.(message);
+
+        // Receiver has no tab/app open at all -> fall back to a Web Push
+        // notification so they're alerted the way WhatsApp does. (If
+        // they're online, the in-app Notification API in useNotifications.js
+        // already covers the "tab open but unfocused" case.)
+        if (!isUserOnline(receiver)) {
+          const sender = await User.findById(userId).select('username avatar');
+          sendPushToUser(receiver, {
+            title: sender?.username || 'New message',
+            body: previewFor(message),
+            icon: sender?.avatar || '/icon-192.png',
+            tag: `chat-${userId}`,
+            url: '/',
+            senderId: userId,
+          }).catch((err) => console.error('push send error:', err.message));
+        }
       } catch (err) {
         console.error('send_message error:', err.message);
         callback?.({ error: 'Message could not be sent' });
@@ -109,6 +136,43 @@ export function initSocket(io) {
     socket.on('typing', ({ receiver, isTyping }) => {
       if (!receiver) return;
       emitToUser(io, receiver, 'typing', { from: userId, isTyping: !!isTyping });
+    });
+
+    // ---- WebRTC signaling for audio/video calls ----
+    // The server never touches media - it just relays SDP offers/answers and
+    // ICE candidates between the two peers, plus the ring/accept/reject/hangup
+    // handshake around them.
+
+    socket.on('call_user', ({ to, offer, callType }) => {
+      if (!to || !offer) return;
+      if (!isUserOnline(to)) {
+        return socket.emit('call_failed', { to, reason: 'offline' });
+      }
+      emitToUser(io, to, 'incoming_call', {
+        from: userId,
+        offer,
+        callType: callType === 'video' ? 'video' : 'audio',
+      });
+    });
+
+    socket.on('call_answer', ({ to, answer }) => {
+      if (!to || !answer) return;
+      emitToUser(io, to, 'call_answered', { from: userId, answer });
+    });
+
+    socket.on('call_ice_candidate', ({ to, candidate }) => {
+      if (!to || !candidate) return;
+      emitToUser(io, to, 'call_ice_candidate', { from: userId, candidate });
+    });
+
+    socket.on('call_reject', ({ to }) => {
+      if (!to) return;
+      emitToUser(io, to, 'call_rejected', { from: userId });
+    });
+
+    socket.on('call_end', ({ to }) => {
+      if (!to) return;
+      emitToUser(io, to, 'call_ended', { from: userId });
     });
 
     socket.on('disconnect', () => {

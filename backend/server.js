@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
 import friendRoutes from './routes/friends.js';
 import userRoutes from './routes/users.js';
+import pushRoutes from './routes/push.js';
 import { initSocket } from './socket/index.js';
 
 const app = express();
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/push', pushRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
