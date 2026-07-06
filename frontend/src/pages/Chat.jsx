@@ -3,11 +3,14 @@ import { friendsApi, chatApi } from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { useNotifications } from '../hooks/useNotifications.js';
+import { usePushNotifications } from '../hooks/usePushNotifications.js';
+import { useCall } from '../context/CallContext.jsx';
 import Sidebar from '../components/Sidebar.jsx';
 import AddFriendsPanel from '../components/AddFriendsPanel.jsx';
 import ChatHeader from '../components/ChatHeader.jsx';
 import AvatarModal from '../components/AvatarModal.jsx';
 import NotificationBanner from '../components/NotificationBanner.jsx';
+import CallModal from '../components/CallModal.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
@@ -20,6 +23,8 @@ export default function Chat() {
   const { user } = useAuth();
   const { socket, onlineUsers } = useSocket();
   const { notify, permission, requestPermission } = useNotifications();
+  usePushNotifications(permission === 'granted');
+  const { startCall, callState, peerUser, setPeerUser } = useCall();
 
   const [tab, setTab] = useState('chats');
   const [friends, setFriends] = useState([]);
@@ -126,6 +131,15 @@ export default function Chat() {
     socket.on('typing', handler);
     return () => socket.off('typing', handler);
   }, [socket]);
+
+  // An incoming call only carries the caller's userId - once the friends
+  // list is available, fill in their username/avatar for the call UI.
+  useEffect(() => {
+    if (callState === 'incoming' && peerUser && !peerUser.username) {
+      const friend = friends.find((f) => f._id === peerUser._id);
+      if (friend) setPeerUser(friend);
+    }
+  }, [callState, peerUser, friends, setPeerUser]);
 
   // Real-time: someone sent me a friend request
   useEffect(() => {
@@ -269,6 +283,8 @@ export default function Chat() {
           onDeleteChat={handleDeleteChat}
           onBack={() => setActiveUser(null)}
           isTyping={remoteTyping}
+          onAudioCall={() => activeUser && startCall(activeUser, 'audio')}
+          onVideoCall={() => activeUser && startCall(activeUser, 'video')}
         />
         {messageError && (
           <div className="mx-4 sm:mx-6 mt-3 text-sm text-ember-200 bg-ember-900/40 border border-ember-700/50 rounded-lg px-3 py-2">
@@ -293,6 +309,7 @@ export default function Chat() {
       </main>
 
       {showAvatarModal && <AvatarModal onClose={() => setShowAvatarModal(false)} />}
+      <CallModal />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Register from './pages/Register.jsx';
 import Chat from './pages/Chat.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
+import { CallProvider } from './context/CallContext.jsx';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -21,7 +22,9 @@ export default function App() {
         element={
           <PrivateRoute>
             <SocketProvider>
-              <Chat />
+              <CallProvider>
+                <Chat />
+              </CallProvider>
             </SocketProvider>
           </PrivateRoute>
         }

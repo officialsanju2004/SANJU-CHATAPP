@@ -27,7 +27,7 @@ export default function Sidebar({
           <Avatar username={user?.username} avatar={user?.avatar} size="md" />
         </button>
         <div className="min-w-0">
-          <p className="font-display font-semibold text-sm text-ember-50 truncate">Sanju Chat </p>
+          <p className="font-display font-semibold text-sm text-ember-50 truncate">Sanju Chat</p>
           <p className="text-xs text-ember-50/40 truncate">@{user?.username}</p>
         </div>
         <button

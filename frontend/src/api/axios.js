@@ -38,6 +38,12 @@ export const chatApi = {
   },
 };
 
+export const pushApi = {
+  getPublicKey: () => api.get('/push/vapid-public-key'),
+  subscribe: (subscription) => api.post('/push/subscribe', { subscription }),
+  unsubscribe: (endpoint) => api.post('/push/unsubscribe', { endpoint }),
+};
+
 export const usersApi = {
   uploadAvatar: (file) => {
     const form = new FormData();
