@@ -56,7 +56,7 @@ export default function Login() {
             </svg>
           </div>
           <h1 className="font-display font-bold text-2xl tracking-tight text-ember-50">
-            Ember Chat
+            Sanju Chat 
           </h1>
           <p className="text-sm text-ember-50/50 mt-1">Sign in to keep the conversation going</p>
         </div>
