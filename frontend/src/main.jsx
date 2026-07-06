@@ -12,26 +12,11 @@ import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 // Register Service Worker for PWA
 registerSW({ immediate: true });
-
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+  <BrowserRouter>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </BrowserRouter>
 );
-
-
-
-
-
-
-
-
-
-
-
-
 

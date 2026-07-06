@@ -83,6 +83,20 @@ those features.
 
 ## What's new in this version
 
+- **Fixed: last seen flashing "just now" for everyone** — disconnects (page refresh, a dev
+  backend restart, brief network blips) used to stamp `lastSeen` immediately, so a quick reconnect
+  looked identical to someone actually closing the app. There's now an 8-second grace period: if
+  the user reconnects within that window, nothing is stamped or broadcast at all. Only a genuine
+  "closed the app" disconnect updates `lastSeen`. React StrictMode (which double-fires effects in
+  dev, causing spurious connect/disconnect pairs) has also been removed from `main.jsx` since it
+  was contributing to the same symptom.
+- **Fixed: notifications never appearing** — permission was being requested automatically on page
+  load, which several browsers (Safari, and increasingly Chrome/Firefox) silently ignore unless
+  it's triggered by a real user click. There's now a small banner ("Turn on notifications…") with
+  an **Enable** button — clicking it reliably triggers the browser's permission prompt. Remember:
+  even with permission granted, notifications only fire while the tab/app is open in the
+  background — if someone has fully closed the tab, no notification can reach them (that requires
+  Web Push + a Service Worker, which isn't built yet - ask if you want it added).
 - **Profile pictures** — tap your own avatar (top-left of the sidebar) to upload/replace it.
 - **Images in chat** — the 🖼 button next to the composer uploads and sends a photo.
 - **Voice notes** — hold the mic button to record, release to send; tap the play button on a

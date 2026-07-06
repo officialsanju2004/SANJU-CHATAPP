@@ -6,9 +6,20 @@ import User from '../models/User.js';
 // userId -> Set of socket ids (a user can have multiple tabs/devices open)
 export const onlineUsers = new Map();
 
+// userId -> pending "mark offline" timeout. Lets a quick reconnect (page
+// refresh, React StrictMode's double-mount in dev, a brief network blip, a
+// backend restart the client auto-reconnects from) cancel the offline stamp
+// instead of flashing everyone's status and lastSeen to "just now".
+const pendingOffline = new Map();
+const OFFLINE_GRACE_MS = 8000;
+
 function addSocket(userId, socketId) {
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
   onlineUsers.get(userId).add(socketId);
+
+  // Cancel any pending "went offline" stamp for this user - they're back
+  clearTimeout(pendingOffline.get(userId));
+  pendingOffline.delete(userId);
 }
 
 function removeSocket(userId, socketId) {
@@ -16,6 +27,25 @@ function removeSocket(userId, socketId) {
   if (!set) return;
   set.delete(socketId);
   if (set.size === 0) onlineUsers.delete(userId);
+}
+
+function scheduleOfflineStamp(io, userId) {
+  clearTimeout(pendingOffline.get(userId));
+  const timeoutId = setTimeout(async () => {
+    pendingOffline.delete(userId);
+    // If they reconnected during the grace window, do nothing
+    if (onlineUsers.has(userId)) return;
+
+    io.emit('online_users', Array.from(onlineUsers.keys()));
+    try {
+      const lastSeen = new Date();
+      await User.findByIdAndUpdate(userId, { lastSeen });
+      io.emit('user_last_seen', { userId, lastSeen });
+    } catch (err) {
+      console.error('lastSeen update error:', err.message);
+    }
+  }, OFFLINE_GRACE_MS);
+  pendingOffline.set(userId, timeoutId);
 }
 
 // Emit an event to every open socket/tab a given user has, if they're online
@@ -81,20 +111,15 @@ export function initSocket(io) {
       emitToUser(io, receiver, 'typing', { from: userId, isTyping: !!isTyping });
     });
 
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', () => {
       removeSocket(userId, socket.id);
-      io.emit('online_users', Array.from(onlineUsers.keys()));
 
-      // Only stamp lastSeen once every tab/device for this user has closed
-      if (!onlineUsers.has(userId)) {
-        try {
-          const lastSeen = new Date();
-          await User.findByIdAndUpdate(userId, { lastSeen });
-          io.emit('user_last_seen', { userId, lastSeen });
-        } catch (err) {
-          console.error('lastSeen update error:', err.message);
-        }
-      }
+      // Still has another tab/device open -> nothing changed, no grace period needed
+      if (onlineUsers.has(userId)) return;
+
+      // Fully disconnected - wait a few seconds before broadcasting "offline"
+      // and stamping lastSeen, in case this is just a quick reconnect
+      scheduleOfflineStamp(io, userId);
     });
   });
 }

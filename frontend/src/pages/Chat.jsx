@@ -7,6 +7,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import AddFriendsPanel from '../components/AddFriendsPanel.jsx';
 import ChatHeader from '../components/ChatHeader.jsx';
 import AvatarModal from '../components/AvatarModal.jsx';
+import NotificationBanner from '../components/NotificationBanner.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
@@ -18,7 +19,7 @@ function previewFor(message) {
 export default function Chat() {
   const { user } = useAuth();
   const { socket, onlineUsers } = useSocket();
-  const { notify } = useNotifications();
+  const { notify, permission, requestPermission } = useNotifications();
 
   const [tab, setTab] = useState('chats');
   const [friends, setFriends] = useState([]);
@@ -274,6 +275,7 @@ export default function Chat() {
             {messageError}
           </div>
         )}
+        <NotificationBanner permission={permission} onEnable={requestPermission} />
         <MessageList
           messages={messages}
           currentUserId={user?.id}
