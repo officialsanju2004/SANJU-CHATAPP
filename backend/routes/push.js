@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import PushSubscription from '../models/PushSubscription.js';
 import { requireAuth } from '../middleware/auth.js';
+import { sendPushToUser } from '../utils/webpush.js';
 
 const router = Router();
 
@@ -40,5 +41,14 @@ router.post('/unsubscribe', requireAuth, async (req, res) => {
     res.status(500).json({ message: 'Could not remove subscription' });
   }
 });
+router.get('/test', requireAuth, async (req, res) => {
+  await sendPushToUser(req.userId, {
+    title: 'Test notification',
+    body: 'Agar yeh dikh raha hai to push kaam kar raha hai 🎉',
+    url: '/',
+  });
+  res.json({ message: 'Test push sent (check your phone)' });
+});
+
 
 export default router;

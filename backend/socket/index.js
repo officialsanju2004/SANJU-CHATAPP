@@ -115,17 +115,17 @@ export function initSocket(io) {
         // notification so they're alerted the way WhatsApp does. (If
         // they're online, the in-app Notification API in useNotifications.js
         // already covers the "tab open but unfocused" case.)
-        if (!isUserOnline(receiver)) {
-          const sender = await User.findById(userId).select('username avatar');
-          sendPushToUser(receiver, {
-            title: sender?.username || 'New message',
-            body: previewFor(message),
-            icon: sender?.avatar || '/icon-192.png',
-            tag: `chat-${userId}`,
-            url: '/',
-            senderId: userId,
-          }).catch((err) => console.error('push send error:', err.message));
-        }
+        console.log('[push debug] receiver:', receiver, '| isUserOnline:', isUserOnline(receiver));
+        const sender = await User.findById(userId).select('username avatar');
+
+sendPushToUser(receiver, {
+  title: sender?.username || 'New message',
+  body: previewFor(message),
+  icon: sender?.avatar || '/icon2.jpeg',
+  tag: `chat-${userId}`,
+  url: '/',
+  senderId: userId,
+}).catch((err) => console.error('push send error:', err));
       } catch (err) {
         console.error('send_message error:', err.message);
         callback?.({ error: 'Message could not be sent' });
@@ -177,6 +177,7 @@ export function initSocket(io) {
 
     socket.on('disconnect', () => {
       removeSocket(userId, socket.id);
+      console.log('[push debug] socket disconnected for user', userId, '| still online elsewhere:', onlineUsers.has(userId));
 
       // Still has another tab/device open -> nothing changed, no grace period needed
       if (onlineUsers.has(userId)) return;

@@ -15,9 +15,9 @@ import { initSocket } from './socket/index.js';
 const app = express();
 const httpServer = createServer(app);
 
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'||'http://localhost:5173';
 
-app.use(cors({ origin: CLIENT_URL }));
+app.use(cors());
 app.use(express.json());
 
 // Serve uploaded avatars/images/voice notes as static files

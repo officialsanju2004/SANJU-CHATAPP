@@ -61,26 +61,30 @@ export default function CallModal() {
   }
 
   const isVideo = callType === 'video';
+  const showVideo = isVideo && callState === 'connected';
 
   return (
     <div className="fixed inset-0 z-50 bg-void-950/90 backdrop-blur-sm flex flex-col items-center justify-center gap-6 animate-floatIn">
-      {isVideo && callState === 'connected' ? (
-        <div className="relative w-full h-full">
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover bg-surface"
-          />
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="absolute bottom-24 right-4 w-28 h-40 sm:w-36 sm:h-52 object-cover rounded-xl border border-surface-border shadow-neon-lg"
-          />
-        </div>
-      ) : (
+      {/* These stay mounted for the whole call (ringing -> connected) so the
+          srcObject we assign in the useEffects above never gets lost when
+          the UI below switches look. Only visibility toggles with `hidden`. */}
+      <div className={`relative w-full h-full ${showVideo ? '' : 'hidden'}`}>
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="w-full h-full object-cover bg-surface"
+        />
+        <video
+          ref={localVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="absolute bottom-24 right-4 w-28 h-40 sm:w-36 sm:h-52 object-cover rounded-xl border border-surface-border shadow-neon-lg"
+        />
+      </div>
+
+      {!showVideo && (
         <div className="flex flex-col items-center gap-4">
           <Avatar username={peerUser?.username || '?'} avatar={peerUser?.avatar} size="xl" />
           <div className="text-center">
@@ -96,8 +100,9 @@ export default function CallModal() {
         </div>
       )}
 
-      {/* Hidden audio sink for audio-only calls so remote sound plays */}
-      {!isVideo && <audio ref={remoteAudioRef} autoPlay />}
+      {/* Always mounted so remote audio plays throughout the call; the video
+          call's own <video> tag also carries audio once shown. */}
+      <audio ref={remoteAudioRef} autoPlay muted={isVideo} className="hidden" />
 
       <div className="absolute bottom-8 flex items-center gap-4">
         {callState === 'incoming' ? (
