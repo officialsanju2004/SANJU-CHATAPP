@@ -67,7 +67,11 @@ router.post('/upload', requireAuth, uploadChatMedia.single('media'), async (req,
     }
     const type = req.file.mimetype.startsWith('audio/') ? 'voice' : 'image';
     res.json({
-      url: `/uploads/media/${req.file.filename}`,
+      // ⚠️ FIX: req.file.path used to be a local disk path under uploads/media
+      // (which disappears on restart/redeploy on most hosts). Now that
+      // uploadChatMedia stores through Cloudinary, req.file.path is already
+      // the permanent hosted URL - just return it as-is.
+      url: req.file.path,
       type,
     });
   } catch (err) {

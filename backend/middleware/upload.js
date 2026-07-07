@@ -1,28 +1,58 @@
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
-const AVATAR_DIR = path.join(process.cwd(), 'uploads', 'avatars');
-const MEDIA_DIR = path.join(process.cwd(), 'uploads', 'media');
+// ⚠️ FIX: avatars/media used to be saved with multer.diskStorage() straight
+// onto the server's local filesystem (uploads/avatars, uploads/media).
+// That works fine on your own laptop, but almost every free host (Render,
+// Railway, Vercel, etc.) gives you an EPHEMERAL filesystem: the disk gets
+// wiped every time the server restarts, redeploys, or spins back up after
+// being idle. That's exactly why an uploaded profile picture showed up for
+// a bit and then "disappeared" - the file it pointed to no longer existed
+// once the container recycled.
+//
+// Cloudinary (or S3/Supabase Storage - same idea) stores the file on a
+// separate, persistent service, so the URL keeps working no matter what
+// happens to your server's disk.
 
-for (const dir of [AVATAR_DIR, MEDIA_DIR]) {
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-function filenameFor(originalname) {
-  const ext = path.extname(originalname) || '';
-  return `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
-}
-
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, AVATAR_DIR),
-  filename: (req, file, cb) => cb(null, filenameFor(file.originalname)),
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const mediaStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, MEDIA_DIR),
-  filename: (req, file, cb) => cb(null, filenameFor(file.originalname)),
+export const cloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+);
+
+if (!cloudinaryConfigured) {
+  console.warn(
+    'Cloudinary is not configured (missing CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / ' +
+      'CLOUDINARY_API_SECRET). Avatar/media uploads will fail until these are set in backend/.env. ' +
+      'Get free credentials at https://cloudinary.com'
+  );
+}
+
+const avatarStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'sanju-chat/avatars',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+    // Keeps avatars a sane size regardless of what the user uploads
+    transformation: [{ width: 512, height: 512, crop: 'limit' }],
+  },
+});
+
+const mediaStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'sanju-chat/media',
+    // Chat media can be an image or a voice note - Cloudinary's "auto"
+    // resource_type handles both without needing two separate storages.
+    resource_type: 'auto',
+  },
 });
 
 const imageFilter = (req, file, cb) => {

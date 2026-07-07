@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import fs from 'fs';
-import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadAvatar } from '../middleware/upload.js';
@@ -17,13 +16,15 @@ router.post('/avatar', requireAuth, uploadAvatar.single('avatar'), async (req, r
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Clean up the old avatar file so uploads/ doesn't grow forever
-    if (user.avatar) {
-      const oldPath = path.join(process.cwd(), user.avatar.replace(/^\//, ''));
-      fs.unlink(oldPath, () => {});
+    // Clean up the old avatar on Cloudinary so storage doesn't grow forever
+    if (user.avatarPublicId) {
+      cloudinary.uploader.destroy(user.avatarPublicId).catch(() => {});
     }
 
-    user.avatar = `/uploads/avatars/${req.file.filename}`;
+    // multer-storage-cloudinary gives us the hosted URL in `path` and the
+    // Cloudinary asset id (needed to delete it later) in `filename`.
+    user.avatar = req.file.path;
+    user.avatarPublicId = req.file.filename;
     await user.save();
 
     res.json({ avatar: user.avatar });

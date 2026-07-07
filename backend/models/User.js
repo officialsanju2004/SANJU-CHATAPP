@@ -17,7 +17,13 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
     },
     avatar: {
-      type: String, // relative URL e.g. /uploads/avatars/xxx.jpg
+      type: String, // full Cloudinary URL, e.g. https://res.cloudinary.com/.../avatars/xxx.jpg
+      default: '',
+    },
+    // Cloudinary's asset id for the current avatar, so we can delete the old
+    // one from Cloudinary when the user uploads a new avatar.
+    avatarPublicId: {
+      type: String,
       default: '',
     },
     lastSeen: {
@@ -44,4 +50,3 @@ userSchema.methods.toSafeObject = function () {
 };
 
 export default mongoose.model('User', userSchema);
-
