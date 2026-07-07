@@ -22,7 +22,19 @@ export function usePushNotifications(enabled) {
   const subscribe = useCallback(async () => {
     if (!SUPPORTED) return false;
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      // Kick off registration if it hasn't happened yet (main.jsx usually
+      // already does this, so most of the time this just returns the
+      // existing registration).
+      await navigator.serviceWorker.register('/sw.js');
+
+      // ⚠️ FIX: register() resolves as soon as the registration exists -
+      // NOT once the service worker is actually active. Calling
+      // pushManager.subscribe() right after register() can race the SW's
+      // install/activate lifecycle and fail with
+      // "Subscription failed - no active Service Worker".
+      // navigator.serviceWorker.ready only resolves once there IS an
+      // active worker controlling the page, so wait on that instead.
+      const registration = await navigator.serviceWorker.ready;
 
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
