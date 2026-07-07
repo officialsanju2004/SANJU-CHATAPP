@@ -46,9 +46,17 @@ self.addEventListener('push', (event) => {
   }
 
   // ✅ CHANGE 1: Default body set karo
-  const { title = 'Ember Chat', body = '📩 New message', icon, tag, url = '/', senderId } = payload;
+  const { title = 'Ember Chat', body = '📩 New message', icon, url = '/', senderId } = payload;
 
-  console.log('📢 5. Showing notification with:', { title, body });
+  // ⚠️ FIX: renotify:true REQUIRES a non-empty tag - the browser throws if
+  // tag is missing/empty while renotify is true. Some senders (like the
+  // /api/push/test route) don't include a tag, which crashed
+  // showNotification() and made event.waitUntil() reject - THIS is what
+  // triggers Chrome's generic "This site has been updated in the
+  // background" fallback notification instead of our real one.
+  const tag = payload.tag || `chat-${senderId || 'default'}`;
+
+  console.log('📢 5. Showing notification with:', { title, body, tag });
 
   event.waitUntil(
     self.registration.showNotification(title, {
