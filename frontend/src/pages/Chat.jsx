@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { friendsApi, chatApi } from '../api/axios.js';
+import { friendsApi, chatApi, lockApi, statusApi, mediaUrl } from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { useNotifications } from '../hooks/useNotifications.js';
@@ -11,10 +11,14 @@ import ChatHeader from '../components/ChatHeader.jsx';
 import AvatarModal from '../components/AvatarModal.jsx';
 import NotificationBanner from '../components/NotificationBanner.jsx';
 import CallModal from '../components/CallModal.jsx';
+import PinLockScreen from '../components/PinLockScreen.jsx';
+import StatusViewer from '../components/StatusViewer.jsx';
+import StatusComposer from '../components/StatusComposer.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
-  if (message.type === 'image') return '📷 Photo';
+  if (!message) return '';
+  if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'voice') return '🎤 Voice message';
   return message.content;
 }
@@ -35,11 +39,25 @@ export default function Chat() {
   const [messageError, setMessageError] = useState('');
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
 
   const [incoming, setIncoming] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [actionError, setActionError] = useState('');
+
+  // ✅ Chat lock
+  const [lockEnabled, setLockEnabled] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+  const [lockChecked, setLockChecked] = useState(false);
+
+  // ✅ Chat-list previews (last message + unread count per friend)
+  const [summaries, setSummaries] = useState({}); // friendId -> { lastMessage, unreadCount }
+
+  // ✅ Status
+  const [statusFeed, setStatusFeed] = useState([]);
+  const [viewingStatus, setViewingStatus] = useState(null); // a feed entry
+  const [composingStatus, setComposingStatus] = useState(false);
 
   const activeUserRef = useRef(activeUser);
   activeUserRef.current = activeUser;
@@ -53,11 +71,37 @@ export default function Chat() {
     friendsApi.incoming().then(({ data }) => setIncoming(data));
   }, []);
 
+  const loadSummaries = useCallback(() => {
+    chatApi
+      .summaries()
+      .then(({ data }) => {
+        const map = {};
+        data.forEach((s) => {
+          map[s.friendId] = { lastMessage: s.lastMessage, unreadCount: s.unreadCount };
+        });
+        setSummaries(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  const loadStatusFeed = useCallback(() => {
+    statusApi
+      .feed()
+      .then(({ data }) => setStatusFeed(data))
+      .catch(() => {});
+  }, []);
+
   // Initial load
   useEffect(() => {
     loadFriends();
     loadIncoming();
-  }, [loadFriends, loadIncoming]);
+    loadSummaries();
+    loadStatusFeed();
+    lockApi
+      .status()
+      .then(({ data }) => setLockEnabled(data.enabled))
+      .finally(() => setLockChecked(true));
+  }, [loadFriends, loadIncoming, loadSummaries, loadStatusFeed]);
 
   // Live search as the user types (debounced)
   useEffect(() => {
@@ -77,6 +121,7 @@ export default function Chat() {
     setMessageError('');
     setMessages([]);
     setRemoteTyping(false);
+    setReplyingTo(null);
     chatApi
       .messages(activeUser._id)
       .then(({ data }) => {
@@ -85,6 +130,46 @@ export default function Chat() {
       })
       .catch(() => setMessages([]));
   }, [activeUser]);
+
+  // Clear the unread badge locally the moment I open that conversation
+  // (the server-side "seen" flip happens via open_conversation below, this
+  // just makes the sidebar preview feel instant).
+  useEffect(() => {
+    if (!activeUser) return;
+    setSummaries((prev) => ({
+      ...prev,
+      [activeUser._id]: { ...(prev[activeUser._id] || {}), unreadCount: 0 },
+    }));
+  }, [activeUser]);
+
+  // ---- Read receipts ----
+  useEffect(() => {
+    if (!socket) return;
+
+    const announceOpen = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (activeUserRef.current) {
+        socket.emit('open_conversation', { withUser: activeUserRef.current._id });
+      }
+    };
+    const announceClosed = () => socket.emit('close_conversation');
+
+    if (activeUser) {
+      announceOpen();
+    } else {
+      announceClosed();
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') announceOpen();
+      else announceClosed();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [socket, activeUser]);
 
   // Infinite scroll: fetch the page before the oldest message currently loaded
   const loadOlderMessages = useCallback(async () => {
@@ -111,6 +196,17 @@ export default function Chat() {
 
       setMessages((prev) => (isActiveChat ? [...prev, msg] : prev));
 
+      // Keep the chat-list preview (and unread badge) fresh even if this
+      // conversation isn't the one currently open.
+      setSummaries((prev) => ({
+        ...prev,
+        [otherId]: {
+          lastMessage: msg,
+          unreadCount:
+            msg.sender === user.id || isActiveChat ? 0 : (prev[otherId]?.unreadCount || 0) + 1,
+        },
+      }));
+
       if (msg.sender !== user.id) {
         const friend = friends.find((f) => f._id === otherId);
         notify(friend ? friend.username : 'New message', { body: previewFor(msg), tag: `chat-${otherId}` });
@@ -119,6 +215,55 @@ export default function Chat() {
     socket.on('receive_message', handler);
     return () => socket.off('receive_message', handler);
   }, [socket, user, friends, notify]);
+
+  // Real-time: the other person has seen the message(s) I sent them
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ by }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          const isMine = m.sender === user.id || m.sender?._id === user.id;
+          const seenByRightPerson = m.receiver === by || m.receiver?._id === by;
+          if (isMine && seenByRightPerson && !m.seen) {
+            return { ...m, seen: true, seenAt: new Date().toISOString() };
+          }
+          return m;
+        })
+      );
+    };
+    socket.on('messages_seen', handler);
+    return () => socket.off('messages_seen', handler);
+  }, [socket, user]);
+
+  // Real-time: someone reacted (or removed a reaction) to a message
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId, reactions }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)));
+    };
+    socket.on('message_reacted', handler);
+    return () => socket.off('message_reacted', handler);
+  }, [socket]);
+
+  // Real-time: the other person opened a view-once photo I sent them
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, viewOnceOpenedAt: new Date().toISOString() } : m))
+      );
+    };
+    socket.on('view_once_opened', handler);
+    return () => socket.off('view_once_opened', handler);
+  }, [socket]);
+
+  // Real-time: a friend posted a new status
+  useEffect(() => {
+    if (!socket) return;
+    const handler = () => loadStatusFeed();
+    socket.on('new_status', handler);
+    return () => socket.off('new_status', handler);
+  }, [socket, loadStatusFeed]);
 
   // Real-time: typing indicator from whoever we're chatting with
   useEffect(() => {
@@ -157,19 +302,6 @@ export default function Chat() {
     return () => socket.off('friend_request_accepted', handler);
   }, [socket, loadFriends]);
 
-  // Real-time: the other person deleted this conversation -> clear it on my side too
-  useEffect(() => {
-    if (!socket) return;
-    const handler = ({ by }) => {
-      if (activeUserRef.current && by === activeUserRef.current._id) {
-        setMessages([]);
-        setHasMore(false);
-      }
-    };
-    socket.on('chat_deleted', handler);
-    return () => socket.off('chat_deleted', handler);
-  }, [socket]);
-
   // Real-time: keep last-seen fresh in both the friends list and the open chat
   useEffect(() => {
     if (!socket) return;
@@ -185,19 +317,49 @@ export default function Chat() {
     (payload) => {
       if (!activeUser || !socket) return;
       setMessageError('');
-      socket.emit('send_message', { receiver: activeUser._id, ...payload }, (result) => {
+      const withReply = replyingTo ? { ...payload, replyTo: replyingTo._id } : payload;
+      socket.emit('send_message', { receiver: activeUser._id, ...withReply }, (result) => {
         if (result?.error) {
           setMessageError(result.error);
         } else if (result) {
           setMessages((prev) => [...prev, result]);
+          setSummaries((prev) => ({
+            ...prev,
+            [activeUser._id]: { lastMessage: result, unreadCount: 0 },
+          }));
         }
       });
+      setReplyingTo(null);
     },
-    [activeUser, socket]
+    [activeUser, socket, replyingTo]
   );
 
   const handleSendText = (content) => sendMessage({ type: 'text', content });
-  const handleSendMedia = ({ type, mediaUrl, duration }) => sendMessage({ type, mediaUrl, duration });
+  const handleSendMedia = ({ type, mediaUrl, duration, viewOnce }) =>
+    sendMessage({ type, mediaUrl, duration, viewOnce });
+
+  const handleReact = useCallback(
+    (messageId, emoji) => {
+      if (!socket) return;
+      socket.emit('react_message', { messageId, emoji });
+    },
+    [socket]
+  );
+
+  const handleOpenViewOnce = useCallback(async (message) => {
+    try {
+      const { data } = await chatApi.openViewOnce(message._id);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === message._id ? { ...m, mediaUrl: '', viewOnceConsumed: true, viewOnceOpenedAt: new Date().toISOString() } : m
+        )
+      );
+      return { url: mediaUrl(data.mediaUrl) };
+    } catch (err) {
+      setMessageError(err.response?.data?.message || 'Could not open photo');
+      return null;
+    }
+  }, []);
 
   const handleTyping = useCallback(
     (isTyping) => {
@@ -246,6 +408,12 @@ export default function Chat() {
     }
   };
 
+  // Gate the whole app behind the PIN until it's checked + entered
+  if (!lockChecked) return null;
+  if (lockEnabled && !unlocked) {
+    return <PinLockScreen onUnlock={() => setUnlocked(true)} />;
+  }
+
   return (
     <div className="h-[100dvh] flex overflow-hidden">
       <Sidebar
@@ -261,6 +429,17 @@ export default function Chat() {
         incomingCount={incoming.length}
         hiddenOnMobile={!!activeUser}
         onAvatarClick={() => setShowAvatarModal(true)}
+        summaries={summaries}
+        lockEnabled={lockEnabled}
+        onLockChanged={setLockEnabled}
+        statusFeed={statusFeed}
+        currentUser={user}
+        onOpenMyStatus={() => {
+          const mine = statusFeed.find((f) => f.isMine);
+          if (mine) setViewingStatus(mine);
+        }}
+        onAddStatus={() => setComposingStatus(true)}
+        onOpenFriendStatus={(entry) => setViewingStatus(entry)}
       >
         <AddFriendsPanel
           searchQuery={searchQuery}
@@ -299,17 +478,40 @@ export default function Chat() {
           hasMore={hasMore}
           loadingMore={loadingMore}
           typing={remoteTyping}
+          onReply={setReplyingTo}
+          friendUsername={activeUser?.username}
+          onReact={handleReact}
+          onOpenViewOnce={handleOpenViewOnce}
         />
         <MessageComposer
           onSendText={handleSendText}
           onSendMedia={handleSendMedia}
           onTyping={handleTyping}
           disabled={!activeUser}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
+          currentUserId={user?.id}
+          friendUsername={activeUser?.username}
         />
       </main>
 
       {showAvatarModal && <AvatarModal onClose={() => setShowAvatarModal(false)} />}
       <CallModal />
+
+      {viewingStatus && (
+        <StatusViewer
+          entry={viewingStatus}
+          isMine={viewingStatus.isMine}
+          onClose={() => {
+            setViewingStatus(null);
+            loadStatusFeed();
+          }}
+          onDeleted={() => loadStatusFeed()}
+        />
+      )}
+      {composingStatus && (
+        <StatusComposer onClose={() => setComposingStatus(false)} onPosted={loadStatusFeed} />
+      )}
     </div>
   );
 }

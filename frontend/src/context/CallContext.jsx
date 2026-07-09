@@ -25,6 +25,14 @@ export function CallProvider({ children }) {
   const pcRef = useRef(null);
   const pendingOfferRef = useRef(null); // {from, offer, callType} while ringing
   const pendingCandidatesRef = useRef([]); // ICE candidates that arrive before remote description is set
+  const ringTimeoutRef = useRef(null); // auto end an unanswered call, like a real phone
+
+  const RING_TIMEOUT_MS = 45000;
+
+  const clearRingTimeout = useCallback(() => {
+    clearTimeout(ringTimeoutRef.current);
+    ringTimeoutRef.current = null;
+  }, []);
 
   const cleanup = useCallback(() => {
     pcRef.current?.close();
@@ -40,6 +48,7 @@ export function CallProvider({ children }) {
 
   const endCall = useCallback(
     (notifyPeer = true) => {
+      clearRingTimeout();
       if (notifyPeer && peerUser && socket) {
         socket.emit('call_end', { to: peerUser._id });
       }
@@ -47,7 +56,7 @@ export function CallProvider({ children }) {
       setCallState('idle');
       setPeerUser(null);
     },
-    [cleanup, peerUser, socket]
+    [cleanup, peerUser, socket, clearRingTimeout]
   );
 
   const buildPeerConnection = useCallback(
@@ -99,18 +108,27 @@ export function CallProvider({ children }) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         socket.emit('call_user', { to: targetUser._id, offer, callType: type });
+
+        // Like a real phone: if nobody answers within 45s, stop ringing
+        // automatically instead of leaving the caller hanging forever.
+        clearRingTimeout();
+        ringTimeoutRef.current = setTimeout(() => {
+          setCallError('No answer');
+          endCall(true);
+        }, RING_TIMEOUT_MS);
       } catch (err) {
         setCallError(err.name === 'NotAllowedError' ? 'Camera/microphone permission denied' : 'Could not start call');
         cleanup();
         setCallState('idle');
       }
     },
-    [socket, callState, buildPeerConnection, cleanup]
+    [socket, callState, buildPeerConnection, cleanup, clearRingTimeout, endCall]
   );
 
   const acceptCall = useCallback(async () => {
     const pending = pendingOfferRef.current;
     if (!pending) return;
+    clearRingTimeout();
     setCallError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -140,15 +158,16 @@ export function CallProvider({ children }) {
       setCallState('idle');
       setPeerUser(null);
     }
-  }, [socket, buildPeerConnection, cleanup]);
+  }, [socket, buildPeerConnection, cleanup, clearRingTimeout]);
 
   const rejectCall = useCallback(() => {
+    clearRingTimeout();
     const pending = pendingOfferRef.current;
     if (pending) socket.emit('call_reject', { to: pending.from });
     cleanup();
     setCallState('idle');
     setPeerUser(null);
-  }, [socket, cleanup]);
+  }, [socket, cleanup, clearRingTimeout]);
 
   const toggleMute = useCallback(() => {
     if (!localStream) return;
@@ -178,9 +197,20 @@ export function CallProvider({ children }) {
       setCallType(type);
       setPeerUser((prev) => prev || { _id: from });
       setCallState('incoming');
+
+      // Stop ringing on this side too if it's never picked up, same as a
+      // real phone eventually giving up.
+      clearRingTimeout();
+      ringTimeoutRef.current = setTimeout(() => {
+        socket.emit('call_reject', { to: from });
+        cleanup();
+        setCallState('idle');
+        setPeerUser(null);
+      }, RING_TIMEOUT_MS);
     };
 
     const onCallAnswered = async ({ answer }) => {
+      clearRingTimeout();
       if (!pcRef.current) return;
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
       for (const candidate of pendingCandidatesRef.current) {
@@ -203,6 +233,7 @@ export function CallProvider({ children }) {
     };
 
     const onCallRejected = () => {
+      clearRingTimeout();
       setCallError('Call declined');
       cleanup();
       setCallState('idle');
@@ -210,13 +241,15 @@ export function CallProvider({ children }) {
     };
 
     const onCallEnded = () => {
+      clearRingTimeout();
       cleanup();
       setCallState('idle');
       setPeerUser(null);
     };
 
     const onCallFailed = ({ reason }) => {
-      setCallError(reason === 'offline' ? 'User is offline' : 'Call failed');
+      clearRingTimeout();
+      setCallError(reason === 'offline' ? "User is offline - they'll see a missed call" : 'Call failed');
       cleanup();
       setCallState('idle');
       setPeerUser(null);

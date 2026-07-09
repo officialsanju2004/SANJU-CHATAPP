@@ -30,6 +30,13 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    // ✅ Chat lock: one PIN locks every conversation in the app. Only the
+    // bcrypt hash is ever stored, exactly like the account password.
+    chatLock: {
+      enabled: { type: Boolean, default: false },
+      pinHash: { type: String, default: '' },
+    },
   },
   { timestamps: true }
 );
@@ -45,8 +52,18 @@ userSchema.methods.comparePassword = function (candidate) {
   return bcrypt.compare(candidate, this.password);
 };
 
+userSchema.methods.comparePin = function (candidate) {
+  if (!this.chatLock?.pinHash) return Promise.resolve(false);
+  return bcrypt.compare(candidate, this.chatLock.pinHash);
+};
+
 userSchema.methods.toSafeObject = function () {
-  return { id: this._id, username: this.username, avatar: this.avatar };
+  return {
+    id: this._id,
+    username: this.username,
+    avatar: this.avatar,
+    chatLockEnabled: !!this.chatLock?.enabled,
+  };
 };
 
 export default mongoose.model('User', userSchema);

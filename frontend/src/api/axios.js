@@ -36,6 +36,10 @@ export const chatApi = {
       onUploadProgress: onProgress,
     });
   },
+  // Last message + unread count per friend, for the chat-list previews
+  summaries: () => api.get('/chat/summaries'),
+  // The one-time reveal call for a view-once photo
+  openViewOnce: (messageId) => api.post(`/chat/messages/${messageId}/view-once/open`),
 };
 
 export const pushApi = {
@@ -54,7 +58,40 @@ export const usersApi = {
   },
 };
 
-// Resolve a relative /uploads/... path from the API into an absolute URL
+// ✅ Chat lock (single app-wide PIN)
+export const lockApi = {
+  status: () => api.get('/lock/status'),
+  set: (pin) => api.post('/lock/set', { pin }),
+  verify: (pin) => api.post('/lock/verify', { pin }),
+  disable: (pin) => api.post('/lock/disable', { pin }),
+  change: (currentPin, newPin) => api.post('/lock/change', { currentPin, newPin }),
+};
+
+// ✅ Status (WhatsApp-style stories)
+export const statusApi = {
+  feed: () => api.get('/status/feed'),
+  postImage: (file, caption) => {
+    const form = new FormData();
+    form.append('status', file);
+    if (caption) form.append('caption', caption);
+    return api.post('/status/image', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  postText: (caption, bgColor) => api.post('/status/text', { caption, bgColor }),
+  markViewed: (statusId) => api.post(`/status/${statusId}/view`),
+  viewers: (statusId) => api.get(`/status/${statusId}/viewers`),
+  remove: (statusId) => api.delete(`/status/${statusId}`),
+};
+
+// ✅ Account deletion (separate from sign out)
+export const accountApi = {
+  deleteAccount: (password) => api.delete('/account/me', { data: { password } }),
+};
+
+// Resolve a relative /uploads/... path from the API into an absolute URL.
+// (Avatars/media are full Cloudinary URLs now and already start with
+// "http", so this just passes those straight through.)
 export const mediaUrl = (relativePath) => {
   if (!relativePath) return '';
   if (relativePath.startsWith('http')) return relativePath;

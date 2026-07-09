@@ -55,6 +55,15 @@ const mediaStorage = new CloudinaryStorage({
   },
 });
 
+const statusStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'sanju-chat/status',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 1080, height: 1920, crop: 'limit' }],
+  },
+});
+
 const imageFilter = (req, file, cb) => {
   if (!file.mimetype.startsWith('image/')) {
     return cb(new Error('Only image files are allowed'));
@@ -80,4 +89,10 @@ export const uploadChatMedia = multer({
   storage: mediaStorage,
   limits: { fileSize: 15 * 1024 * 1024 }, // 15MB (covers voice notes)
   fileFilter: chatMediaFilter,
+});
+
+export const uploadStatus = multer({
+  storage: statusStorage,
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+  fileFilter: imageFilter,
 });

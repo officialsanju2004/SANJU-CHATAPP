@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Avatar from './Avatar.jsx';
 import { useCall } from '../context/CallContext.jsx';
+import { useRingtone } from '../hooks/useRingtone.js';
 
 function CallButton({ onClick, className = '', title, children }) {
   return (
@@ -35,6 +36,11 @@ export default function CallModal() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
+
+  // Ring while it's ringing on either side - incoming tone for the callee,
+  // ringback tone for the caller - silent as soon as it connects/ends.
+  useRingtone(callState === 'incoming', 'incoming');
+  useRingtone(callState === 'outgoing', 'outgoing');
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null;
