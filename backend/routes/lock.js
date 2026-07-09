@@ -9,8 +9,8 @@ const PIN_REGEX = /^\d{4,6}$/; // 4-6 digit PIN, like a phone lock screen
 
 // GET /api/lock/status
 router.get('/status', requireAuth, async (req, res) => {
-  const user = await User.findById(req.userId).select('chatLock.enabled');
-  res.json({ enabled: !!user?.chatLock?.enabled });
+  const user = await User.findById(req.userId).select('chatLock.enabled chatLock.pinLength');
+  res.json({ enabled: !!user?.chatLock?.enabled, pinLength: user?.chatLock?.pinLength || 0 });
 });
 
 // POST /api/lock/set { pin }  -> turns the lock ON for the first time (or resets it)
@@ -20,7 +20,9 @@ router.post('/set', requireAuth, async (req, res) => {
     return res.status(400).json({ message: 'PIN must be 4-6 digits' });
   }
   const pinHash = await bcrypt.hash(pin, 10);
-  await User.findByIdAndUpdate(req.userId, { chatLock: { enabled: true, pinHash } });
+  await User.findByIdAndUpdate(req.userId, {
+    chatLock: { enabled: true, pinHash, pinLength: pin.length },
+  });
   res.json({ enabled: true });
 });
 
@@ -45,7 +47,7 @@ router.post('/disable', requireAuth, async (req, res) => {
   const valid = await user.comparePin(pin || '');
   if (!valid) return res.status(401).json({ message: 'Incorrect PIN' });
 
-  await User.findByIdAndUpdate(req.userId, { chatLock: { enabled: false, pinHash: '' } });
+  await User.findByIdAndUpdate(req.userId, { chatLock: { enabled: false, pinHash: '', pinLength: 0 } });
   res.json({ enabled: false });
 });
 
@@ -61,7 +63,9 @@ router.post('/change', requireAuth, async (req, res) => {
     if (!valid) return res.status(401).json({ message: 'Current PIN is incorrect' });
   }
   const pinHash = await bcrypt.hash(newPin, 10);
-  await User.findByIdAndUpdate(req.userId, { chatLock: { enabled: true, pinHash } });
+  await User.findByIdAndUpdate(req.userId, {
+    chatLock: { enabled: true, pinHash, pinLength: newPin.length },
+  });
   res.json({ enabled: true });
 });
 

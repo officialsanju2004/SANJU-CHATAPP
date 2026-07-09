@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { lockApi } from '../api/axios.js';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
@@ -7,6 +7,17 @@ export default function PinLockScreen({ onUnlock }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  // Backend only stores the hash, never the raw PIN, so the UI asks for the
+  // length separately - without this we'd have no way to know whether to
+  // wait for a 4th, 5th, or 6th digit before checking.
+  const [pinLength, setPinLength] = useState(null);
+
+  useEffect(() => {
+    lockApi
+      .status()
+      .then(({ data }) => setPinLength(data.pinLength && data.pinLength >= 4 ? data.pinLength : 4))
+      .catch(() => setPinLength(4)); // sane fallback if the status call fails
+  }, []);
 
   const handleKey = async (key) => {
     setError('');
@@ -14,25 +25,24 @@ export default function PinLockScreen({ onUnlock }) {
       setPin((p) => p.slice(0, -1));
       return;
     }
-    if (!key || pin.length >= 6) return;
+    const expected = pinLength || 4;
+    if (!key || pin.length >= expected) return;
     const next = pin + key;
     setPin(next);
 
-    if (next.length >= 4) {
+    if (next.length === expected) {
       setChecking(true);
       try {
         const { data } = await lockApi.verify(next);
         if (data.valid) {
           onUnlock();
-        } else if (next.length === 6) {
+        } else {
           setError('Incorrect PIN');
           setPin('');
         }
       } catch (err) {
-        if (next.length === 6 || err.response?.status === 401) {
-          setError(err.response?.data?.message || 'Incorrect PIN');
-          setPin('');
-        }
+        setError(err.response?.data?.message || 'Incorrect PIN');
+        setPin('');
       } finally {
         setChecking(false);
       }
@@ -50,7 +60,7 @@ export default function PinLockScreen({ onUnlock }) {
       <p className="text-sm text-ember-50/40 mb-6">Chats are locked for your privacy</p>
 
       <div className="flex gap-3 mb-2">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
+        {Array.from({ length: pinLength || 6 }).map((_, i) => (
           <span
             key={i}
             className={`w-3.5 h-3.5 rounded-full border ${
@@ -66,7 +76,7 @@ export default function PinLockScreen({ onUnlock }) {
           key ? (
             <button
               key={i}
-              disabled={checking}
+              disabled={checking || pinLength === null}
               onClick={() => handleKey(key)}
               className="h-16 rounded-2xl bg-surface-light border border-surface-border text-ember-50 text-xl font-medium flex items-center justify-center hover:bg-void/60 active:scale-95 transition-transform disabled:opacity-50"
             >

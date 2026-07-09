@@ -33,9 +33,13 @@ const userSchema = new mongoose.Schema(
 
     // ✅ Chat lock: one PIN locks every conversation in the app. Only the
     // bcrypt hash is ever stored, exactly like the account password.
+    // pinLength (4-6) is stored in the clear just so the UI knows how many
+    // dots to wait for before firing a verify call - it reveals nothing
+    // about the PIN itself.
     chatLock: {
       enabled: { type: Boolean, default: false },
       pinHash: { type: String, default: '' },
+      pinLength: { type: Number, default: 0 },
     },
   },
   { timestamps: true }
