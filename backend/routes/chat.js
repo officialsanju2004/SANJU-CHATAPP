@@ -2,6 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import Message from '../models/Message.js';
 import Friendship from '../models/Friendship.js';
+import Group from '../models/Group.js';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadChatMedia } from '../middleware/upload.js';
 import { emitToUser } from '../socket/index.js';
@@ -21,6 +22,15 @@ function maskViewOnce(messages, viewerId) {
     }
     return m;
   });
+}
+
+// An unsent ("deleted for everyone") message keeps its document (so reactions/
+// replies pointing at it don't break) but its actual content is scrubbed for
+// EVERY viewer, sender included - matches WhatsApp's "This message was deleted".
+function maskDeletedForEveryone(messages) {
+  return messages.map((m) =>
+    m.deletedForEveryone ? { ...m, content: '', mediaUrl: '', reactions: [] } : m
+  );
 }
 
 // GET /api/chat/messages/:otherUserId?before=<messageId>&limit=30
@@ -65,11 +75,56 @@ router.get('/messages/:otherUserId', requireAuth, async (req, res) => {
     page.reverse(); // ...then flip to oldest-first for the UI
 
     res.json({
-      messages: maskViewOnce(page, req.userId),
+      messages: maskDeletedForEveryone(maskViewOnce(page, req.userId)),
       hasMore: page.length === limit,
     });
   } catch (err) {
     res.status(500).json({ message: 'Could not load messages' });
+  }
+});
+
+// GET /api/chat/group/:groupId/messages?before=<messageId>&limit=30
+router.get('/group/:groupId/messages', requireAuth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { before } = req.query;
+    const limit = Math.min(parseInt(req.query.limit, 10) || DEFAULT_PAGE_SIZE, 100);
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ message: 'Invalid group id' });
+    }
+
+    const group = await Group.findById(groupId).select('members');
+    if (!group || !group.isMember(req.userId)) {
+      return res.status(403).json({ message: 'You are not a member of this group' });
+    }
+
+    const conversationId = Message.conversationIdForGroup(groupId);
+    const query = { conversationId };
+
+    if (before) {
+      if (!mongoose.Types.ObjectId.isValid(before)) {
+        return res.status(400).json({ message: 'Invalid cursor' });
+      }
+      const cursorMsg = await Message.findById(before).select('createdAt');
+      if (cursorMsg) query.createdAt = { $lt: cursorMsg.createdAt };
+    }
+
+    const page = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('replyTo', 'content type mediaUrl sender')
+      .populate('sender', 'username avatar')
+      .lean();
+
+    page.reverse();
+
+    res.json({
+      messages: maskDeletedForEveryone(page),
+      hasMore: page.length === limit,
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load group messages' });
   }
 });
 
@@ -101,7 +156,7 @@ router.get('/summaries', requireAuth, async (req, res) => {
         ]);
         return {
           friendId,
-          lastMessage: lastMessage ? maskViewOnce([lastMessage], req.userId)[0] : null,
+          lastMessage: lastMessage ? maskDeletedForEveryone(maskViewOnce([lastMessage], req.userId))[0] : null,
           unreadCount,
         };
       })

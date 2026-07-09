@@ -33,4 +33,17 @@ router.post('/avatar', requireAuth, uploadAvatar.single('avatar'), async (req, r
   }
 });
 
+// GET /api/users/privacy
+router.get('/privacy', requireAuth, async (req, res) => {
+  const user = await User.findById(req.userId).select('privacy');
+  res.json({ blockGroupAdd: !!user?.privacy?.blockGroupAdd });
+});
+
+// PATCH /api/users/privacy { blockGroupAdd }
+router.patch('/privacy', requireAuth, async (req, res) => {
+  const { blockGroupAdd } = req.body;
+  await User.findByIdAndUpdate(req.userId, { 'privacy.blockGroupAdd': !!blockGroupAdd });
+  res.json({ blockGroupAdd: !!blockGroupAdd });
+});
+
 export default router;

@@ -12,6 +12,8 @@ import pushRoutes from './routes/push.js';
 import lockRoutes from './routes/lock.js';
 import statusRoutes from './routes/status.js';
 import accountRoutes from './routes/account.js';
+import blockRoutes from './routes/block.js';
+import groupRoutes from './routes/groups.js';
 import { initSocket } from './socket/index.js';
 
 const app = express();
@@ -19,7 +21,7 @@ const httpServer = createServer(app);
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'||'http://localhost:5174';
 
-app.use(cors());
+app.use(cors({ origin: CLIENT_URL }));
 app.use(express.json());
 
 const io = new Server(httpServer, {
@@ -39,6 +41,8 @@ app.use('/api/push', pushRoutes);
 app.use('/api/lock', lockRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/account', accountRoutes);
+app.use('/api/block', blockRoutes);
+app.use('/api/groups', groupRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { friendsApi, chatApi, lockApi, statusApi, mediaUrl } from '../api/axios.js';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { friendsApi, chatApi, lockApi, statusApi, blockApi, groupsApi, privacyApi, mediaUrl } from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { useNotifications } from '../hooks/useNotifications.js';
@@ -14,12 +14,14 @@ import CallModal from '../components/CallModal.jsx';
 import PinLockScreen from '../components/PinLockScreen.jsx';
 import StatusViewer from '../components/StatusViewer.jsx';
 import StatusComposer from '../components/StatusComposer.jsx';
+import GroupInfoModal from '../components/GroupInfoModal.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
   if (!message) return '';
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'voice') return '🎤 Voice message';
+  if (message.deletedForEveryone) return 'This message was deleted';
   return message.content;
 }
 
@@ -32,7 +34,8 @@ export default function Chat() {
 
   const [tab, setTab] = useState('chats');
   const [friends, setFriends] = useState([]);
-  const [activeUser, setActiveUser] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null); // { type: 'dm', user } | { type: 'group', group }
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -40,31 +43,38 @@ export default function Chat() {
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
 
   const [incoming, setIncoming] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [actionError, setActionError] = useState('');
 
-  // ✅ Chat lock
   const [lockEnabled, setLockEnabled] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [lockChecked, setLockChecked] = useState(false);
 
-  // ✅ Chat-list previews (last message + unread count per friend)
-  const [summaries, setSummaries] = useState({}); // friendId -> { lastMessage, unreadCount }
+  const [summaries, setSummaries] = useState({}); // DM: friendId -> { lastMessage, unreadCount }
+  const [blockedIds, setBlockedIds] = useState(new Set());
+  const [privacyBlockGroupAdd, setPrivacyBlockGroupAdd] = useState(false);
 
-  // ✅ Status
   const [statusFeed, setStatusFeed] = useState([]);
-  const [viewingStatus, setViewingStatus] = useState(null); // a feed entry
+  const [viewingStatus, setViewingStatus] = useState(null);
   const [composingStatus, setComposingStatus] = useState(false);
 
-  const activeUserRef = useRef(activeUser);
-  activeUserRef.current = activeUser;
+  const activeConversationRef = useRef(activeConversation);
+  activeConversationRef.current = activeConversation;
   const typingTimeoutRef = useRef(null);
+
+  const activeUser = activeConversation?.type === 'dm' ? activeConversation.user : null;
+  const activeGroup = activeConversation?.type === 'group' ? activeConversation.group : null;
 
   const loadFriends = useCallback(() => {
     friendsApi.list().then(({ data }) => setFriends(data));
+  }, []);
+
+  const loadGroups = useCallback(() => {
+    groupsApi.list().then(({ data }) => setGroups(data));
   }, []);
 
   const loadIncoming = useCallback(() => {
@@ -85,25 +95,24 @@ export default function Chat() {
   }, []);
 
   const loadStatusFeed = useCallback(() => {
-    statusApi
-      .feed()
-      .then(({ data }) => setStatusFeed(data))
-      .catch(() => {});
+    statusApi.feed().then(({ data }) => setStatusFeed(data)).catch(() => {});
   }, []);
 
-  // Initial load
+  const loadBlocked = useCallback(() => {
+    blockApi.list().then(({ data }) => setBlockedIds(new Set(data.map((u) => u._id)))).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadFriends();
+    loadGroups();
     loadIncoming();
     loadSummaries();
     loadStatusFeed();
-    lockApi
-      .status()
-      .then(({ data }) => setLockEnabled(data.enabled))
-      .finally(() => setLockChecked(true));
-  }, [loadFriends, loadIncoming, loadSummaries, loadStatusFeed]);
+    loadBlocked();
+    lockApi.status().then(({ data }) => setLockEnabled(data.enabled)).finally(() => setLockChecked(true));
+    privacyApi.get().then(({ data }) => setPrivacyBlockGroupAdd(data.blockGroupAdd)).catch(() => {});
+  }, [loadFriends, loadGroups, loadIncoming, loadSummaries, loadStatusFeed, loadBlocked]);
 
-  // Live search as the user types (debounced)
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -115,108 +124,132 @@ export default function Chat() {
     return () => clearTimeout(handle);
   }, [searchQuery]);
 
-  // Load the latest page of a conversation when the active friend changes
+  // Load message history whenever the active conversation changes
   useEffect(() => {
-    if (!activeUser) return;
+    if (!activeConversation) return;
     setMessageError('');
     setMessages([]);
     setRemoteTyping(false);
     setReplyingTo(null);
-    chatApi
-      .messages(activeUser._id)
+
+    const fetcher =
+      activeConversation.type === 'dm'
+        ? chatApi.messages(activeConversation.user._id)
+        : chatApi.groupMessages(activeConversation.group._id);
+
+    fetcher
       .then(({ data }) => {
         setMessages(data.messages);
         setHasMore(data.hasMore);
       })
       .catch(() => setMessages([]));
-  }, [activeUser]);
+  }, [activeConversation]);
 
-  // Clear the unread badge locally the moment I open that conversation
-  // (the server-side "seen" flip happens via open_conversation below, this
-  // just makes the sidebar preview feel instant).
+  // Clear the unread badge locally the instant a conversation is opened
   useEffect(() => {
-    if (!activeUser) return;
-    setSummaries((prev) => ({
-      ...prev,
-      [activeUser._id]: { ...(prev[activeUser._id] || {}), unreadCount: 0 },
-    }));
-  }, [activeUser]);
+    if (!activeConversation) return;
+    if (activeConversation.type === 'dm') {
+      const id = activeConversation.user._id;
+      setSummaries((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), unreadCount: 0 } }));
+    } else {
+      const id = activeConversation.group._id;
+      setGroups((prev) => prev.map((g) => (g._id === id ? { ...g, unreadCount: 0 } : g)));
+    }
+  }, [activeConversation]);
 
-  // ---- Read receipts ----
+  // ---- Read receipts: tell the server which conversation is open ----
   useEffect(() => {
     if (!socket) return;
 
     const announceOpen = () => {
       if (document.visibilityState !== 'visible') return;
-      if (activeUserRef.current) {
-        socket.emit('open_conversation', { withUser: activeUserRef.current._id });
-      }
+      const conv = activeConversationRef.current;
+      if (!conv) return;
+      if (conv.type === 'dm') socket.emit('open_conversation', { withUser: conv.user._id });
+      else socket.emit('open_group_conversation', { groupId: conv.group._id });
     };
-    const announceClosed = () => socket.emit('close_conversation');
+    const announceClosed = () => {
+      socket.emit('close_conversation');
+      socket.emit('close_group_conversation');
+    };
 
-    if (activeUser) {
-      announceOpen();
-    } else {
-      announceClosed();
-    }
+    if (activeConversation) announceOpen();
+    else announceClosed();
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') announceOpen();
       else announceClosed();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [socket, activeConversation]);
 
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [socket, activeUser]);
-
-  // Infinite scroll: fetch the page before the oldest message currently loaded
   const loadOlderMessages = useCallback(async () => {
-    if (!activeUser || messages.length === 0) return;
+    if (!activeConversation || messages.length === 0) return;
     setLoadingMore(true);
     try {
       const oldestId = messages[0]._id;
-      const { data } = await chatApi.messages(activeUser._id, oldestId);
+      const { data } =
+        activeConversation.type === 'dm'
+          ? await chatApi.messages(activeConversation.user._id, oldestId)
+          : await chatApi.groupMessages(activeConversation.group._id, oldestId);
       setMessages((prev) => [...data.messages, ...prev]);
       setHasMore(data.hasMore);
     } catch (err) {
-      // silently ignore - user can retry by scrolling again
+      // ignore, user can retry by scrolling again
     } finally {
       setLoadingMore(false);
     }
-  }, [activeUser, messages]);
+  }, [activeConversation, messages]);
 
-  // Real-time: incoming chat messages
+  // Real-time: incoming messages (both DM and group share this event)
   useEffect(() => {
     if (!socket) return;
     const handler = (msg) => {
-      const otherId = msg.sender === user.id ? msg.receiver : msg.sender;
-      const isActiveChat = activeUserRef.current && otherId === activeUserRef.current._id;
+      const conv = activeConversationRef.current;
+      const senderId = msg.sender?._id || msg.sender;
 
+      if (msg.group) {
+        const isActive = conv?.type === 'group' && conv.group._id === msg.group;
+        setMessages((prev) => (isActive ? [...prev, msg] : prev));
+        setGroups((prev) =>
+          prev.map((g) =>
+            g._id === msg.group
+              ? { ...g, lastMessage: msg, unreadCount: isActive ? 0 : (g.unreadCount || 0) + 1 }
+              : g
+          )
+        );
+        if (senderId !== user.id) {
+          const group = groups.find((g) => g._id === msg.group);
+          notify(group?.name || 'New group message', {
+            body: `${msg.sender?.username || 'Someone'}: ${previewFor(msg)}`,
+            tag: `group-${msg.group}`,
+          });
+        }
+        return;
+      }
+
+      const otherId = senderId === user.id ? msg.receiver : senderId;
+      const isActiveChat = conv?.type === 'dm' && otherId === conv.user._id;
       setMessages((prev) => (isActiveChat ? [...prev, msg] : prev));
-
-      // Keep the chat-list preview (and unread badge) fresh even if this
-      // conversation isn't the one currently open.
       setSummaries((prev) => ({
         ...prev,
         [otherId]: {
           lastMessage: msg,
-          unreadCount:
-            msg.sender === user.id || isActiveChat ? 0 : (prev[otherId]?.unreadCount || 0) + 1,
+          unreadCount: senderId === user.id || isActiveChat ? 0 : (prev[otherId]?.unreadCount || 0) + 1,
         },
       }));
 
-      if (msg.sender !== user.id) {
+      if (senderId !== user.id) {
         const friend = friends.find((f) => f._id === otherId);
         notify(friend ? friend.username : 'New message', { body: previewFor(msg), tag: `chat-${otherId}` });
       }
     };
     socket.on('receive_message', handler);
     return () => socket.off('receive_message', handler);
-  }, [socket, user, friends, notify]);
+  }, [socket, user, friends, groups, notify]);
 
-  // Real-time: the other person has seen the message(s) I sent them
+  // Real-time: DM seen receipts
   useEffect(() => {
     if (!socket) return;
     const handler = ({ by }) => {
@@ -224,9 +257,7 @@ export default function Chat() {
         prev.map((m) => {
           const isMine = m.sender === user.id || m.sender?._id === user.id;
           const seenByRightPerson = m.receiver === by || m.receiver?._id === by;
-          if (isMine && seenByRightPerson && !m.seen) {
-            return { ...m, seen: true, seenAt: new Date().toISOString() };
-          }
+          if (isMine && seenByRightPerson && !m.seen) return { ...m, seen: true, seenAt: new Date().toISOString() };
           return m;
         })
       );
@@ -235,7 +266,25 @@ export default function Chat() {
     return () => socket.off('messages_seen', handler);
   }, [socket, user]);
 
-  // Real-time: someone reacted (or removed a reaction) to a message
+  // Real-time: group seen receipts
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ groupId, by }) => {
+      const conv = activeConversationRef.current;
+      if (conv?.type !== 'group' || conv.group._id !== groupId) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (String(m.group) !== groupId) return m;
+          if (m.seenBy?.some((s) => (s.user?._id || s.user) === by)) return m;
+          return { ...m, seenBy: [...(m.seenBy || []), { user: by, seenAt: new Date().toISOString() }] };
+        })
+      );
+    };
+    socket.on('group_messages_seen', handler);
+    return () => socket.off('group_messages_seen', handler);
+  }, [socket]);
+
+  // Real-time: reactions (DM + group share this event)
   useEffect(() => {
     if (!socket) return;
     const handler = ({ messageId, reactions }) => {
@@ -245,7 +294,29 @@ export default function Chat() {
     return () => socket.off('message_reacted', handler);
   }, [socket]);
 
-  // Real-time: the other person opened a view-once photo I sent them
+  // Real-time: message edited
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId, content, editedAt }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, content, editedAt } : m)));
+    };
+    socket.on('message_edited', handler);
+    return () => socket.off('message_edited', handler);
+  }, [socket]);
+
+  // Real-time: message unsent ("deleted for everyone")
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, deletedForEveryone: true, content: '', mediaUrl: '' } : m))
+      );
+    };
+    socket.on('message_unsent', handler);
+    return () => socket.off('message_unsent', handler);
+  }, [socket]);
+
+  // Real-time: view-once opened
   useEffect(() => {
     if (!socket) return;
     const handler = ({ messageId }) => {
@@ -257,7 +328,24 @@ export default function Chat() {
     return () => socket.off('view_once_opened', handler);
   }, [socket]);
 
-  // Real-time: a friend posted a new status
+  // Real-time: added to / removed from a group
+  useEffect(() => {
+    if (!socket) return;
+    const handleAdded = () => loadGroups();
+    const handleRemoved = ({ groupId }) => {
+      loadGroups();
+      if (activeConversationRef.current?.type === 'group' && activeConversationRef.current.group._id === groupId) {
+        setActiveConversation(null);
+      }
+    };
+    socket.on('added_to_group', handleAdded);
+    socket.on('removed_from_group', handleRemoved);
+    return () => {
+      socket.off('added_to_group', handleAdded);
+      socket.off('removed_from_group', handleRemoved);
+    };
+  }, [socket, loadGroups]);
+
   useEffect(() => {
     if (!socket) return;
     const handler = () => loadStatusFeed();
@@ -265,20 +353,21 @@ export default function Chat() {
     return () => socket.off('new_status', handler);
   }, [socket, loadStatusFeed]);
 
-  // Real-time: typing indicator from whoever we're chatting with
+  // Typing indicator
   useEffect(() => {
     if (!socket) return;
-    const handler = ({ from, isTyping }) => {
-      if (activeUserRef.current && from === activeUserRef.current._id) {
-        setRemoteTyping(isTyping);
+    const handler = ({ from, groupId, isTyping }) => {
+      const conv = activeConversationRef.current;
+      if (groupId) {
+        if (conv?.type === 'group' && conv.group._id === groupId) setRemoteTyping(isTyping);
+        return;
       }
+      if (conv?.type === 'dm' && from === conv.user._id) setRemoteTyping(isTyping);
     };
     socket.on('typing', handler);
     return () => socket.off('typing', handler);
   }, [socket]);
 
-  // An incoming call only carries the caller's userId - once the friends
-  // list is available, fill in their username/avatar for the call UI.
   useEffect(() => {
     if (callState === 'incoming' && peerUser && !peerUser.username) {
       const friend = friends.find((f) => f._id === peerUser._id);
@@ -286,7 +375,6 @@ export default function Chat() {
     }
   }, [callState, peerUser, friends, setPeerUser]);
 
-  // Real-time: someone sent me a friend request
   useEffect(() => {
     if (!socket) return;
     const handler = () => loadIncoming();
@@ -294,7 +382,6 @@ export default function Chat() {
     return () => socket.off('friend_request_received', handler);
   }, [socket, loadIncoming]);
 
-  // Real-time: someone accepted my friend request -> refresh my friends list
   useEffect(() => {
     if (!socket) return;
     const handler = () => loadFriends();
@@ -302,12 +389,13 @@ export default function Chat() {
     return () => socket.off('friend_request_accepted', handler);
   }, [socket, loadFriends]);
 
-  // Real-time: keep last-seen fresh in both the friends list and the open chat
   useEffect(() => {
     if (!socket) return;
     const handler = ({ userId, lastSeen }) => {
       setFriends((prev) => prev.map((f) => (f._id === userId ? { ...f, lastSeen } : f)));
-      setActiveUser((prev) => (prev && prev._id === userId ? { ...prev, lastSeen } : prev));
+      setActiveConversation((prev) =>
+        prev?.type === 'dm' && prev.user._id === userId ? { ...prev, user: { ...prev.user, lastSeen } } : prev
+      );
     };
     socket.on('user_last_seen', handler);
     return () => socket.off('user_last_seen', handler);
@@ -315,28 +403,36 @@ export default function Chat() {
 
   const sendMessage = useCallback(
     (payload) => {
-      if (!activeUser || !socket) return;
+      if (!activeConversation || !socket) return;
       setMessageError('');
       const withReply = replyingTo ? { ...payload, replyTo: replyingTo._id } : payload;
-      socket.emit('send_message', { receiver: activeUser._id, ...withReply }, (result) => {
+      const target =
+        activeConversation.type === 'dm'
+          ? { receiver: activeConversation.user._id }
+          : { groupId: activeConversation.group._id };
+
+      socket.emit('send_message', { ...target, ...withReply }, (result) => {
         if (result?.error) {
           setMessageError(result.error);
         } else if (result) {
           setMessages((prev) => [...prev, result]);
-          setSummaries((prev) => ({
-            ...prev,
-            [activeUser._id]: { lastMessage: result, unreadCount: 0 },
-          }));
+          if (activeConversation.type === 'dm') {
+            setSummaries((prev) => ({ ...prev, [activeConversation.user._id]: { lastMessage: result, unreadCount: 0 } }));
+          } else {
+            setGroups((prev) =>
+              prev.map((g) => (g._id === activeConversation.group._id ? { ...g, lastMessage: result, unreadCount: 0 } : g))
+            );
+          }
         }
       });
       setReplyingTo(null);
     },
-    [activeUser, socket, replyingTo]
+    [activeConversation, socket, replyingTo]
   );
 
   const handleSendText = (content) => sendMessage({ type: 'text', content });
-  const handleSendMedia = ({ type, mediaUrl, duration, viewOnce }) =>
-    sendMessage({ type, mediaUrl, duration, viewOnce });
+  const handleSendMedia = ({ type, mediaUrl: url, duration, viewOnce }) =>
+    sendMessage({ type, mediaUrl: url, duration, viewOnce });
 
   const handleReact = useCallback(
     (messageId, emoji) => {
@@ -346,12 +442,31 @@ export default function Chat() {
     [socket]
   );
 
+  const handleEdit = useCallback(
+    (messageId, content) => {
+      if (!socket) return;
+      socket.emit('edit_message', { messageId, content });
+    },
+    [socket]
+  );
+
+  const handleUnsend = useCallback(
+    (messageId) => {
+      if (!socket) return;
+      if (!window.confirm('Unsend this message for everyone?')) return;
+      socket.emit('unsend_message', { messageId });
+    },
+    [socket]
+  );
+
   const handleOpenViewOnce = useCallback(async (message) => {
     try {
       const { data } = await chatApi.openViewOnce(message._id);
       setMessages((prev) =>
         prev.map((m) =>
-          m._id === message._id ? { ...m, mediaUrl: '', viewOnceConsumed: true, viewOnceOpenedAt: new Date().toISOString() } : m
+          m._id === message._id
+            ? { ...m, mediaUrl: '', viewOnceConsumed: true, viewOnceOpenedAt: new Date().toISOString() }
+            : m
         )
       );
       return { url: mediaUrl(data.mediaUrl) };
@@ -363,16 +478,18 @@ export default function Chat() {
 
   const handleTyping = useCallback(
     (isTyping) => {
-      if (!activeUser || !socket) return;
-      socket.emit('typing', { receiver: activeUser._id, isTyping });
+      if (!activeConversation || !socket) return;
+      if (activeConversation.type === 'dm') {
+        socket.emit('typing', { receiver: activeConversation.user._id, isTyping });
+      } else {
+        socket.emit('typing', { groupId: activeConversation.group._id, isTyping });
+      }
       clearTimeout(typingTimeoutRef.current);
       if (isTyping) {
-        typingTimeoutRef.current = setTimeout(() => {
-          socket.emit('typing', { receiver: activeUser._id, isTyping: false });
-        }, 2000);
+        typingTimeoutRef.current = setTimeout(() => handleTyping(false), 2000);
       }
     },
-    [activeUser, socket]
+    [activeConversation, socket]
   );
 
   const handleSendRequest = async (username) => {
@@ -398,9 +515,16 @@ export default function Chat() {
   };
 
   const handleDeleteChat = async () => {
-    if (!activeUser) return;
+    if (!activeConversation) return;
+    if (activeConversation.type === 'group') {
+      // "Delete" for a group just means leaving it
+      await groupsApi.removeMember(activeConversation.group._id, user.id);
+      setActiveConversation(null);
+      loadGroups();
+      return;
+    }
     try {
-      await chatApi.deleteChat(activeUser._id);
+      await chatApi.deleteChat(activeConversation.user._id);
       setMessages([]);
       setHasMore(false);
     } catch (err) {
@@ -408,28 +532,88 @@ export default function Chat() {
     }
   };
 
-  // Gate the whole app behind the PIN until it's checked + entered
+  const handleToggleBlock = async () => {
+    if (!activeUser) return;
+    const id = activeUser._id;
+    if (blockedIds.has(id)) {
+      await blockApi.unblock(id);
+      setBlockedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } else {
+      if (!window.confirm(`Block ${activeUser.username}? They won't be able to message or call you.`)) return;
+      await blockApi.block(id);
+      setBlockedIds((prev) => new Set(prev).add(id));
+    }
+  };
+
+  const handleTogglePrivacy = async (value) => {
+    setPrivacyBlockGroupAdd(value);
+    await privacyApi.update(value).catch(() => {});
+  };
+
+  const conversations = useMemo(() => {
+    const dmItems = friends.map((f) => {
+      const summary = summaries[f._id];
+      return {
+        key: `dm-${f._id}`,
+        type: 'dm',
+        raw: f,
+        title: f.username,
+        avatar: f.avatar,
+        isOnline: onlineUsers?.includes(f._id),
+        preview: summary?.lastMessage ? previewFor(summary.lastMessage) : 'Say hello 👋',
+        unread: summary?.unreadCount || 0,
+        lastActivity: summary?.lastMessage?.createdAt || null,
+        isGroup: false,
+      };
+    });
+    const groupItems = groups.map((g) => ({
+      key: `group-${g._id}`,
+      type: 'group',
+      raw: g,
+      title: g.name,
+      avatar: g.avatar,
+      isOnline: false,
+      preview: g.lastMessage
+        ? `${g.lastMessage.sender?.username ? g.lastMessage.sender.username + ': ' : ''}${previewFor(g.lastMessage)}`
+        : 'No messages yet',
+      unread: g.unreadCount || 0,
+      lastActivity: g.lastMessage?.createdAt || g.createdAt,
+      isGroup: true,
+    }));
+    return [...dmItems, ...groupItems].sort((a, b) => {
+      if (!a.lastActivity) return 1;
+      if (!b.lastActivity) return -1;
+      return new Date(b.lastActivity) - new Date(a.lastActivity);
+    });
+  }, [friends, groups, summaries, onlineUsers]);
+
+  const activeKey = activeConversation
+    ? activeConversation.type === 'dm'
+      ? `dm-${activeConversation.user._id}`
+      : `group-${activeConversation.group._id}`
+    : null;
+
   if (!lockChecked) return null;
-  if (lockEnabled && !unlocked) {
-    return <PinLockScreen onUnlock={() => setUnlocked(true)} />;
-  }
+  if (lockEnabled && !unlocked) return <PinLockScreen onUnlock={() => setUnlocked(true)} />;
 
   return (
     <div className="h-[100dvh] flex overflow-hidden">
       <Sidebar
         tab={tab}
         onTabChange={setTab}
-        friends={friends}
-        activeUser={activeUser}
-        onSelectUser={(u) => {
-          setActiveUser(u);
+        conversations={conversations}
+        activeKey={activeKey}
+        onSelectConversation={(c) => {
+          setActiveConversation(c.type === 'dm' ? { type: 'dm', user: c.raw } : { type: 'group', group: c.raw });
           setTab('chats');
         }}
-        onlineUserIds={onlineUsers}
         incomingCount={incoming.length}
-        hiddenOnMobile={!!activeUser}
+        hiddenOnMobile={!!activeConversation}
         onAvatarClick={() => setShowAvatarModal(true)}
-        summaries={summaries}
         lockEnabled={lockEnabled}
         onLockChanged={setLockEnabled}
         statusFeed={statusFeed}
@@ -440,6 +624,10 @@ export default function Chat() {
         }}
         onAddStatus={() => setComposingStatus(true)}
         onOpenFriendStatus={(entry) => setViewingStatus(entry)}
+        friendsForGroupCreation={friends}
+        onGroupCreated={() => loadGroups()}
+        privacyBlockGroupAdd={privacyBlockGroupAdd}
+        onTogglePrivacy={handleTogglePrivacy}
       >
         <AddFriendsPanel
           searchQuery={searchQuery}
@@ -453,17 +641,19 @@ export default function Chat() {
         />
       </Sidebar>
 
-      <main
-        className={`flex-1 flex-col h-full min-w-0 ${activeUser ? 'flex' : 'hidden sm:flex'}`}
-      >
+      <main className={`flex-1 flex-col h-full min-w-0 ${activeConversation ? 'flex' : 'hidden sm:flex'}`}>
         <ChatHeader
           activeUser={activeUser}
+          activeGroup={activeGroup}
           isOnline={onlineUsers?.includes(activeUser?._id)}
           onDeleteChat={handleDeleteChat}
-          onBack={() => setActiveUser(null)}
+          onBack={() => setActiveConversation(null)}
           isTyping={remoteTyping}
           onAudioCall={() => activeUser && startCall(activeUser, 'audio')}
           onVideoCall={() => activeUser && startCall(activeUser, 'video')}
+          isBlocked={activeUser && blockedIds.has(activeUser._id)}
+          onToggleBlock={handleToggleBlock}
+          onOpenGroupInfo={() => setShowGroupInfo(true)}
         />
         {messageError && (
           <div className="mx-4 sm:mx-6 mt-3 text-sm text-ember-200 bg-ember-900/40 border border-ember-700/50 rounded-lg px-3 py-2">
@@ -482,12 +672,16 @@ export default function Chat() {
           friendUsername={activeUser?.username}
           onReact={handleReact}
           onOpenViewOnce={handleOpenViewOnce}
+          onEdit={handleEdit}
+          onUnsend={handleUnsend}
+          isGroup={!!activeGroup}
+          memberCount={activeGroup?.members?.length}
         />
         <MessageComposer
           onSendText={handleSendText}
           onSendMedia={handleSendMedia}
           onTyping={handleTyping}
-          disabled={!activeUser}
+          disabled={!activeConversation || (activeUser && blockedIds.has(activeUser._id))}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
           currentUserId={user?.id}
@@ -509,8 +703,23 @@ export default function Chat() {
           onDeleted={() => loadStatusFeed()}
         />
       )}
-      {composingStatus && (
-        <StatusComposer onClose={() => setComposingStatus(false)} onPosted={loadStatusFeed} />
+      {composingStatus && <StatusComposer onClose={() => setComposingStatus(false)} onPosted={loadStatusFeed} />}
+
+      {showGroupInfo && activeGroup && (
+        <GroupInfoModal
+          group={activeGroup}
+          friends={friends}
+          onClose={() => setShowGroupInfo(false)}
+          onUpdated={(updated) => {
+            setActiveConversation({ type: 'group', group: updated });
+            setGroups((prev) => prev.map((g) => (g._id === updated._id ? { ...g, ...updated } : g)));
+          }}
+          onLeft={() => {
+            setShowGroupInfo(false);
+            setActiveConversation(null);
+            loadGroups();
+          }}
+        />
       )}
     </div>
   );

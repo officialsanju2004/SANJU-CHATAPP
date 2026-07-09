@@ -5,6 +5,8 @@ import Message from '../models/Message.js';
 import Friendship from '../models/Friendship.js';
 import Status from '../models/Status.js';
 import PushSubscription from '../models/PushSubscription.js';
+import Block from '../models/Block.js';
+import Group from '../models/Group.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -28,6 +30,8 @@ router.delete('/me', requireAuth, async (req, res) => {
       Friendship.deleteMany({ $or: [{ requester: user._id }, { recipient: user._id }] }),
       Status.deleteMany({ user: user._id }),
       PushSubscription.deleteMany({ user: user._id }).catch(() => {}),
+      Block.deleteMany({ $or: [{ blocker: user._id }, { blocked: user._id }] }),
+      Group.updateMany({ 'members.user': user._id }, { $pull: { members: { user: user._id } } }),
       user.deleteOne(),
     ]);
 

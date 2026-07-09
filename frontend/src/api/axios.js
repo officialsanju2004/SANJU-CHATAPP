@@ -27,6 +27,8 @@ export const chatApi = {
   // to fetch the previous page. Omit it to get the latest page.
   messages: (otherUserId, before) =>
     api.get(`/chat/messages/${otherUserId}`, { params: before ? { before } : {} }),
+  groupMessages: (groupId, before) =>
+    api.get(`/chat/group/${groupId}/messages`, { params: before ? { before } : {} }),
   deleteChat: (otherUserId) => api.delete(`/chat/messages/${otherUserId}`),
   uploadMedia: (file, onProgress) => {
     const form = new FormData();
@@ -65,6 +67,30 @@ export const lockApi = {
   verify: (pin) => api.post('/lock/verify', { pin }),
   disable: (pin) => api.post('/lock/disable', { pin }),
   change: (currentPin, newPin) => api.post('/lock/change', { currentPin, newPin }),
+};
+
+// ✅ Block / unblock
+export const blockApi = {
+  block: (userId) => api.post(`/block/${userId}`),
+  unblock: (userId) => api.delete(`/block/${userId}`),
+  list: () => api.get('/block'),
+  status: (userId) => api.get(`/block/status/${userId}`),
+};
+
+// ✅ Groups
+export const groupsApi = {
+  create: (name, memberIds) => api.post('/groups', { name, memberIds }),
+  list: () => api.get('/groups'),
+  get: (groupId) => api.get(`/groups/${groupId}`),
+  addMember: (groupId, userId) => api.post(`/groups/${groupId}/members`, { userId }),
+  removeMember: (groupId, userId) => api.delete(`/groups/${groupId}/members/${userId}`),
+  rename: (groupId, name) => api.patch(`/groups/${groupId}`, { name }),
+};
+
+// ✅ Privacy settings
+export const privacyApi = {
+  get: () => api.get('/users/privacy'),
+  update: (blockGroupAdd) => api.patch('/users/privacy', { blockGroupAdd }),
 };
 
 // ✅ Status (WhatsApp-style stories)

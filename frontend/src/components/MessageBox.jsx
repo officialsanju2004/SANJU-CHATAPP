@@ -4,6 +4,7 @@ import { formatMessageTime, formatDuration } from '../utils/time.js';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js';
 import { linkify } from '../utils/linkify.js';
 import EmojiReactionPicker from './EmojiReactionPicker.jsx';
+import MessageOptionsMenu from './MessageOptionsMenu.jsx';
 
 // Two overlapping checkmarks, WhatsApp-style. Gray = sent, blue = seen.
 function Ticks({ seen }) {
@@ -53,49 +54,24 @@ function replyPreviewText(replyTo) {
 // unified Pointer Events API) to trigger a reply - the WhatsApp gesture.
 // A vertical drag is treated as a scroll attempt and cancels the swipe so it
 // never fights with the message list's own scrolling.
-function SwipeToReply({ message, onReply, onLongPress, children }) {
+function SwipeToReply({ message, onReply, children }) {
   const startRef = useRef({ x: 0, y: 0 });
   const draggingRef = useRef(false);
-  const longPressTimerRef = useRef(null);
-  const longPressFiredRef = useRef(false);
   const [dx, setDx] = useState(0);
   const MAX_DRAG = 72;
   const THRESHOLD = 46;
-  const LONG_PRESS_MS = 450;
-  const MOVE_CANCEL_PX = 10;
-
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
 
   const handlePointerDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     startRef.current = { x: e.clientX, y: e.clientY };
     draggingRef.current = true;
-    longPressFiredRef.current = false;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-
-    clearLongPressTimer();
-    longPressTimerRef.current = setTimeout(() => {
-      longPressFiredRef.current = true;
-      draggingRef.current = false;
-      setDx(0);
-      navigator.vibrate?.(15);
-      onLongPress?.(message);
-    }, LONG_PRESS_MS);
   };
 
   const handlePointerMove = (e) => {
     if (!draggingRef.current) return;
     const deltaX = e.clientX - startRef.current.x;
     const deltaY = e.clientY - startRef.current.y;
-
-    if (Math.hypot(deltaX, deltaY) > MOVE_CANCEL_PX) {
-      clearLongPressTimer();
-    }
 
     if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 12) {
       draggingRef.current = false;
@@ -107,7 +83,6 @@ function SwipeToReply({ message, onReply, onLongPress, children }) {
   };
 
   const endDrag = () => {
-    clearLongPressTimer();
     if (draggingRef.current && dx > THRESHOLD) {
       onReply(message);
       navigator.vibrate?.(12);
@@ -124,7 +99,6 @@ function SwipeToReply({ message, onReply, onLongPress, children }) {
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      onContextMenu={(e) => e.preventDefault()}
     >
       <div
         className="absolute inset-y-0 left-0 flex items-center text-ember-400 pointer-events-none"
@@ -359,46 +333,71 @@ function ReactionsBar({ reactions, mine }) {
     return acc;
   }, {});
 
-  // Absolutely positioned + z-30 so it always paints above the *next*
-  // message bubble in the list, instead of getting hidden behind it.
   return (
-    <div
-      className={`absolute -bottom-3 z-30 flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-md ${
-        mine ? 'right-2' : 'left-2'
-      }`}
-    >
-      {Object.entries(counts).map(([emoji, count]) => (
-        <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
-          {emoji}
-          {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
-        </span>
-      ))}
+    <div className={`flex gap-1 -mt-1.5 mb-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+      <div className="flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-sm">
+        {Object.entries(counts).map(([emoji, count]) => (
+          <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
+            {emoji}
+            {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
-function MessageBubble({ message, mine, onReply, showSeenLabel, currentUserId, friendUsername, onReact, onOpenViewOnce }) {
+function MessageBubble({
+  message,
+  mine,
+  onReply,
+  showSeenLabel,
+  currentUserId,
+  friendUsername,
+  onReact,
+  onOpenViewOnce,
+  onEdit,
+  onUnsend,
+  isGroup,
+  memberCount,
+}) {
   const [showPicker, setShowPicker] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [viewOnceOverlay, setViewOnceOverlay] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.content);
 
   const handleOpenViewOnce = async (msg) => {
     const result = await onOpenViewOnce(msg);
     if (result?.url) setViewOnceOverlay(result.url);
   };
 
-  const hasReactions = message.reactions && message.reactions.length > 0;
+  const handleSaveEdit = () => {
+    const trimmed = editText.trim();
+    if (trimmed && trimmed !== message.content) onEdit(message._id, trimmed);
+    setIsEditing(false);
+  };
+
+  if (message.deletedForEveryone) {
+    return (
+      <div className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn`}>
+        <div className="max-w-[82%] sm:max-w-[70%] px-3.5 py-2.5 rounded-2xl bg-void border border-surface-border text-ember-50/40 text-sm italic flex items-center gap-1.5">
+          <svg viewBox="0 0 24 24" width="14" height="14" className="fill-current shrink-0">
+            <path d="M6.4 6.4 4.9 4.9 3.5 6.3 6.6 9.4a4.99 4.99 0 0 0 6 8L12.1 17H12a4.99 4.99 0 0 1-3.5-8.6L6.4 6.4Zm11.6 3.7c-.6-2-2.3-3.6-4.6-4L11.6 4.3A6.99 6.99 0 0 1 20 11c0 1.4-.4 2.7-1.2 3.8l-1.4-1.4c.4-.7.6-1.5.6-2.4 0-.4 0-.7-.1-1Z" />
+          </svg>
+          This message was deleted
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <SwipeToReply message={message} onReply={onReply} onLongPress={() => setShowPicker(true)}>
-      <div
-        className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn ${
-          hasReactions ? 'mb-2.5' : ''
-        }`}
-      >
-        <div
-          className="relative max-w-[82%] sm:max-w-[70%]"
-          onDoubleClick={() => setShowPicker((v) => !v)}
-        >
+    <SwipeToReply message={message} onReply={onReply}>
+      {isGroup && !mine && (
+        <p className="text-xs font-medium text-ember-400 ml-1 mb-0.5">{message.sender?.username}</p>
+      )}
+      <div className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn`}>
+        <div className="relative max-w-[82%] sm:max-w-[70%] group">
           {showPicker && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowPicker(false)} />
@@ -411,7 +410,33 @@ function MessageBubble({ message, mine, onReply, showSeenLabel, currentUserId, f
               />
             </>
           )}
+
+          <button
+            onClick={() => setShowMenu((v) => !v)}
+            className={`absolute -top-1 ${
+              mine ? '-left-7' : '-right-7'
+            } w-6 h-6 rounded-full flex items-center justify-center text-ember-50/0 group-hover:text-ember-50/50 hover:!text-ember-50 hover:bg-void/60 transition-colors`}
+            aria-label="Message options"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" className="fill-current">
+              <path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+            </svg>
+          </button>
+          {showMenu && (
+            <MessageOptionsMenu
+              mine={mine}
+              isText={message.type === 'text'}
+              isDeleted={message.deletedForEveryone}
+              onReply={() => onReply(message)}
+              onCopy={() => navigator.clipboard?.writeText(message.content)}
+              onEdit={() => setIsEditing(true)}
+              onUnsend={() => onUnsend(message._id)}
+              onClose={() => setShowMenu(false)}
+            />
+          )}
+
           <div
+            onDoubleClick={() => setShowPicker((v) => !v)}
             className={`px-3.5 py-2.5 sm:px-4 rounded-2xl text-[15px] sm:text-sm leading-relaxed shadow-sm ${
               mine
                 ? 'bg-ember-500 text-void-950 rounded-br-sm shadow-neon'
@@ -433,20 +458,48 @@ function MessageBubble({ message, mine, onReply, showSeenLabel, currentUserId, f
             {message.type === 'voice' && message.mediaUrl && (
               <VoiceBubble src={mediaUrl(message.mediaUrl)} duration={message.duration} mine={mine} />
             )}
-            {message.type === 'text' && <LinkifiedText text={message.content} mine={mine} />}
+            {message.type === 'text' && !isEditing && <LinkifiedText text={message.content} mine={mine} />}
+            {message.type === 'text' && isEditing && (
+              <div className="min-w-[200px]">
+                <input
+                  autoFocus
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveEdit();
+                    if (e.key === 'Escape') setIsEditing(false);
+                  }}
+                  className="w-full bg-black/10 rounded-lg px-2 py-1 outline-none"
+                />
+                <div className="flex gap-2 mt-1.5 justify-end text-xs">
+                  <button onClick={() => setIsEditing(false)} className="opacity-70 hover:opacity-100">
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveEdit} className="font-semibold">
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
             <div
               className={`flex items-center gap-1 justify-end text-[10px] mt-1 ${
                 mine ? 'text-void-950/60' : 'text-ember-50/35'
               }`}
             >
+              {message.editedAt && <span className="italic opacity-70">edited</span>}
               <span>{formatMessageTime(message.createdAt)}</span>
-              {mine && <Ticks seen={!!message.seen} />}
+              {mine && !isGroup && <Ticks seen={!!message.seen} />}
+              {mine && isGroup && memberCount > 1 && (
+                <span className="opacity-70">
+                  {(message.seenBy?.length || 0) >= memberCount - 1 ? '✓✓ Seen' : `✓ ${message.seenBy?.length || 0}`}
+                </span>
+              )}
             </div>
           </div>
-          <ReactionsBar reactions={message.reactions} mine={mine} />
         </div>
       </div>
-      {mine && showSeenLabel && (
+      <ReactionsBar reactions={message.reactions} mine={mine} />
+      {mine && !isGroup && showSeenLabel && (
         <p className="text-right text-[10px] text-sky-400/80 mt-0.5 pr-1">Seen</p>
       )}
       {viewOnceOverlay && (
@@ -467,6 +520,10 @@ export function MessageList({
   friendUsername,
   onReact,
   onOpenViewOnce,
+  onEdit,
+  onUnsend,
+  isGroup,
+  memberCount,
 }) {
   const containerRef = useRef(null);
   const bottomRef = useRef(null);
@@ -534,6 +591,10 @@ export function MessageList({
           friendUsername={friendUsername}
           onReact={onReact}
           onOpenViewOnce={onOpenViewOnce}
+          onEdit={onEdit}
+          onUnsend={onUnsend}
+          isGroup={isGroup}
+          memberCount={memberCount}
         />
       ))}
       {typing && (

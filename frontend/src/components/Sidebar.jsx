@@ -5,26 +5,19 @@ import { formatLastSeen } from '../utils/time.js';
 import StatusRow from './StatusRow.jsx';
 import ChatLockSettings from './ChatLockSettings.jsx';
 import DeleteAccountModal from './DeleteAccountModal.jsx';
-
-function previewText(lastMessage) {
-  if (!lastMessage) return 'Say hello 👋';
-  if (lastMessage.type === 'image') return lastMessage.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
-  if (lastMessage.type === 'voice') return '🎤 Voice message';
-  return lastMessage.content;
-}
+import BlockedUsersModal from './BlockedUsersModal.jsx';
+import CreateGroupModal from './CreateGroupModal.jsx';
 
 export default function Sidebar({
   tab,
   onTabChange,
-  friends,
-  activeUser,
-  onSelectUser,
-  onlineUserIds,
+  conversations, // pre-built, sorted list: { key, type, title, avatar, isOnline, preview, unread, lastSeen, isGroup, raw }
+  activeKey,
+  onSelectConversation,
   incomingCount,
   hiddenOnMobile,
   onAvatarClick,
   children,
-  summaries = {},
   lockEnabled,
   onLockChanged,
   statusFeed = [],
@@ -32,12 +25,18 @@ export default function Sidebar({
   onOpenMyStatus,
   onAddStatus,
   onOpenFriendStatus,
+  friendsForGroupCreation = [],
+  onGroupCreated,
+  privacyBlockGroupAdd,
+  onTogglePrivacy,
 }) {
   const { user, logout } = useAuth();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showLockSettings, setShowLockSettings] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [showBlockedUsers, setShowBlockedUsers] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   return (
     <aside
@@ -55,8 +54,19 @@ export default function Sidebar({
         </div>
 
         <button
-          onClick={() => setShowSettingsMenu((v) => !v)}
+          onClick={() => setShowCreateGroup(true)}
           className="ml-auto text-ember-50/40 hover:text-ember-400 transition-colors p-1.5"
+          aria-label="New group"
+          title="New group"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" className="fill-current">
+            <path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3Zm-8 0c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3Zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13Zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5Z" />
+          </svg>
+        </button>
+
+        <button
+          onClick={() => setShowSettingsMenu((v) => !v)}
+          className="text-ember-50/40 hover:text-ember-400 transition-colors p-1.5"
           aria-label="Settings"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" className="fill-current">
@@ -67,7 +77,7 @@ export default function Sidebar({
         {showSettingsMenu && (
           <>
             <div className="fixed inset-0 z-30" onClick={() => setShowSettingsMenu(false)} />
-            <div className="absolute right-4 top-14 z-40 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden w-48">
+            <div className="absolute right-4 top-14 z-40 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden w-56">
               <button
                 onClick={() => {
                   setShowSettingsMenu(false);
@@ -76,6 +86,32 @@ export default function Sidebar({
                 className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5"
               >
                 {lockEnabled ? 'Chat lock settings' : 'Enable chat lock'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowBlockedUsers(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                Blocked users
+              </button>
+              <button
+                onClick={() => onTogglePrivacy(!privacyBlockGroupAdd)}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border flex items-center justify-between"
+              >
+                <span>Prevent group adds</span>
+                <span
+                  className={`w-9 h-5 rounded-full relative transition-colors ${
+                    privacyBlockGroupAdd ? 'bg-ember-500' : 'bg-white/10'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                      privacyBlockGroupAdd ? 'left-4' : 'left-0.5'
+                    }`}
+                  />
+                </span>
               </button>
               <button
                 onClick={() => {
@@ -104,9 +140,7 @@ export default function Sidebar({
         <div className="fixed inset-0 z-50 bg-void-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-surface border border-surface-border rounded-2xl p-5 w-full max-w-xs shadow-neon-lg animate-floatIn">
             <p className="font-display font-semibold text-ember-50 mb-1">Sign out?</p>
-            <p className="text-sm text-ember-50/50 mb-5">
-              Are you sure you want to sign out of Sanju Chat?
-            </p>
+            <p className="text-sm text-ember-50/50 mb-5">Are you sure you want to sign out of Sanju Chat?</p>
             <div className="flex gap-2.5">
               <button
                 onClick={() => setConfirmingLogout(false)}
@@ -126,15 +160,18 @@ export default function Sidebar({
       )}
 
       {showLockSettings && (
-        <ChatLockSettings
-          enabled={lockEnabled}
-          onClose={() => setShowLockSettings(false)}
-          onChanged={onLockChanged}
-        />
+        <ChatLockSettings enabled={lockEnabled} onClose={() => setShowLockSettings(false)} onChanged={onLockChanged} />
       )}
       {showDeleteAccount && <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />}
+      {showBlockedUsers && <BlockedUsersModal onClose={() => setShowBlockedUsers(false)} />}
+      {showCreateGroup && (
+        <CreateGroupModal
+          friends={friendsForGroupCreation}
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={onGroupCreated}
+        />
+      )}
 
-      {/* Status row */}
       <StatusRow
         feed={statusFeed}
         currentUser={currentUser}
@@ -143,7 +180,6 @@ export default function Sidebar({
         onOpenFriend={onOpenFriendStatus}
       />
 
-      {/* Tab switcher */}
       <div className="flex px-3 sm:px-4 pt-3 gap-2">
         <button
           onClick={() => onTabChange('chats')}
@@ -174,55 +210,39 @@ export default function Sidebar({
 
       {tab === 'chats' ? (
         <div className="flex-1 overflow-y-auto scrollbar-ember px-2 py-3">
-          {friends.length === 0 && (
+          {conversations.length === 0 && (
             <div className="px-3 py-6 text-center">
-              <p className="text-sm text-ember-50/40">No friends yet.</p>
+              <p className="text-sm text-ember-50/40">No conversations yet.</p>
               <p className="text-xs text-ember-50/30 mt-1">
-                Go to "Add Friends" to find people by username.
+                Go to "Add Friends" to find people, or create a group.
               </p>
             </div>
           )}
-          {friends.map((u) => {
-            const isOnline = onlineUserIds?.includes(u._id);
-            const isActive = activeUser?._id === u._id;
-            const summary = summaries[u._id];
-            const unread = summary?.unreadCount || 0;
-
-            return (
-              <button
-                key={u._id}
-                onClick={() => onSelectUser(u)}
-                className={`w-full flex items-center gap-3 px-3 py-3 sm:py-2.5 rounded-xl mb-1 transition-colors text-left ${
-                  isActive ? 'bg-ember-500/10 shadow-neon-inset' : 'hover:bg-void/60 active:bg-void/80'
-                }`}
-              >
-                <Avatar username={u.username} avatar={u.avatar} online={isOnline} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p
-                      className={`text-[15px] sm:text-sm truncate ${
-                        unread > 0 ? 'font-semibold text-ember-50' : 'font-medium text-ember-50'
-                      }`}
-                    >
-                      {u.username}
-                    </p>
-                  </div>
-                  <p
-                    className={`text-xs truncate ${
-                      unread > 0 ? 'text-ember-50/80 font-medium' : 'text-ember-50/35'
-                    }`}
-                  >
-                    {summary?.lastMessage ? previewText(summary.lastMessage) : isOnline ? 'Online' : formatLastSeen(u.lastSeen)}
-                  </p>
-                </div>
-                {unread > 0 && (
-                  <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-ember-500 text-void-950 text-[11px] font-bold flex items-center justify-center shadow-neon">
-                    {unread}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {conversations.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => onSelectConversation(c)}
+              className={`w-full flex items-center gap-3 px-3 py-3 sm:py-2.5 rounded-xl mb-1 transition-colors text-left ${
+                activeKey === c.key ? 'bg-ember-500/10 shadow-neon-inset' : 'hover:bg-void/60 active:bg-void/80'
+              }`}
+            >
+              <Avatar username={c.title} avatar={c.avatar} online={!c.isGroup && c.isOnline} />
+              <div className="min-w-0 flex-1">
+                <p className={`text-[15px] sm:text-sm truncate ${c.unread > 0 ? 'font-semibold' : 'font-medium'} text-ember-50`}>
+                  {c.title}
+                  {c.isGroup && <span className="text-ember-50/30 text-xs font-normal ml-1">group</span>}
+                </p>
+                <p className={`text-xs truncate ${c.unread > 0 ? 'text-ember-50/80 font-medium' : 'text-ember-50/35'}`}>
+                  {c.preview}
+                </p>
+              </div>
+              {c.unread > 0 && (
+                <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-ember-500 text-void-950 text-[11px] font-bold flex items-center justify-center shadow-neon">
+                  {c.unread}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-ember">{children}</div>
