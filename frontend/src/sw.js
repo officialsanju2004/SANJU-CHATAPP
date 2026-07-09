@@ -62,7 +62,7 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(title, {
       body: body || '📩 New message', // ✅ CHANGE 2: Fallback body
       icon: icon || '/icons/icon2.jpeg',
-      badge: '/icons/icon2.jpeg',
+      badge: '/iconsbadge-192.png',
       tag,
       renotify: true,
       data: { url, senderId },
@@ -98,7 +98,7 @@ self.addEventListener('message', (event) => {
       self.registration.showNotification(title, {
         body: body,
         icon: icon,
-        badge: '/icons/icon2.jpeg',
+        badge: '/icons/badge-192.png',
         data: { url: '/' },
       })
     );
