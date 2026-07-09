@@ -53,24 +53,49 @@ function replyPreviewText(replyTo) {
 // unified Pointer Events API) to trigger a reply - the WhatsApp gesture.
 // A vertical drag is treated as a scroll attempt and cancels the swipe so it
 // never fights with the message list's own scrolling.
-function SwipeToReply({ message, onReply, children }) {
+function SwipeToReply({ message, onReply, onLongPress, children }) {
   const startRef = useRef({ x: 0, y: 0 });
   const draggingRef = useRef(false);
+  const longPressTimerRef = useRef(null);
+  const longPressFiredRef = useRef(false);
   const [dx, setDx] = useState(0);
   const MAX_DRAG = 72;
   const THRESHOLD = 46;
+  const LONG_PRESS_MS = 450;
+  const MOVE_CANCEL_PX = 10;
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
   const handlePointerDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     startRef.current = { x: e.clientX, y: e.clientY };
     draggingRef.current = true;
+    longPressFiredRef.current = false;
     e.currentTarget.setPointerCapture?.(e.pointerId);
+
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      draggingRef.current = false;
+      setDx(0);
+      navigator.vibrate?.(15);
+      onLongPress?.(message);
+    }, LONG_PRESS_MS);
   };
 
   const handlePointerMove = (e) => {
     if (!draggingRef.current) return;
     const deltaX = e.clientX - startRef.current.x;
     const deltaY = e.clientY - startRef.current.y;
+
+    if (Math.hypot(deltaX, deltaY) > MOVE_CANCEL_PX) {
+      clearLongPressTimer();
+    }
 
     if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 12) {
       draggingRef.current = false;
@@ -82,6 +107,7 @@ function SwipeToReply({ message, onReply, children }) {
   };
 
   const endDrag = () => {
+    clearLongPressTimer();
     if (draggingRef.current && dx > THRESHOLD) {
       onReply(message);
       navigator.vibrate?.(12);
@@ -98,6 +124,7 @@ function SwipeToReply({ message, onReply, children }) {
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <div
         className="absolute inset-y-0 left-0 flex items-center text-ember-400 pointer-events-none"
@@ -332,16 +359,20 @@ function ReactionsBar({ reactions, mine }) {
     return acc;
   }, {});
 
+  // Absolutely positioned + z-30 so it always paints above the *next*
+  // message bubble in the list, instead of getting hidden behind it.
   return (
-    <div className={`flex gap-1 -mt-1.5 mb-1 ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div className="flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-sm">
-        {Object.entries(counts).map(([emoji, count]) => (
-          <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
-            {emoji}
-            {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
-          </span>
-        ))}
-      </div>
+    <div
+      className={`absolute -bottom-3 z-30 flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-md ${
+        mine ? 'right-2' : 'left-2'
+      }`}
+    >
+      {Object.entries(counts).map(([emoji, count]) => (
+        <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
+          {emoji}
+          {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
+        </span>
+      ))}
     </div>
   );
 }
@@ -355,9 +386,15 @@ function MessageBubble({ message, mine, onReply, showSeenLabel, currentUserId, f
     if (result?.url) setViewOnceOverlay(result.url);
   };
 
+  const hasReactions = message.reactions && message.reactions.length > 0;
+
   return (
-    <SwipeToReply message={message} onReply={onReply}>
-      <div className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn`}>
+    <SwipeToReply message={message} onReply={onReply} onLongPress={() => setShowPicker(true)}>
+      <div
+        className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn ${
+          hasReactions ? 'mb-2.5' : ''
+        }`}
+      >
         <div
           className="relative max-w-[82%] sm:max-w-[70%]"
           onDoubleClick={() => setShowPicker((v) => !v)}
@@ -406,9 +443,9 @@ function MessageBubble({ message, mine, onReply, showSeenLabel, currentUserId, f
               {mine && <Ticks seen={!!message.seen} />}
             </div>
           </div>
+          <ReactionsBar reactions={message.reactions} mine={mine} />
         </div>
       </div>
-      <ReactionsBar reactions={message.reactions} mine={mine} />
       {mine && showSeenLabel && (
         <p className="text-right text-[10px] text-sky-400/80 mt-0.5 pr-1">Seen</p>
       )}
