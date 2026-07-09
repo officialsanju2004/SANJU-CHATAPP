@@ -107,7 +107,7 @@ export default function StatusComposer({ onClose, onPosted }) {
 
         <div className="flex gap-2.5 mt-2">
           <button
-            onClick={() => (mode === 'image' ? fileInputRef.current?.click() : setMode('text'))}
+            onClick={() => fileInputRef.current?.click()}
             className="flex-1 text-sm font-medium py-2 rounded-lg border border-surface-border text-ember-50/70 hover:bg-void/60"
           >
             {mode === 'image' ? 'Change photo' : 'Add photo instead'}
