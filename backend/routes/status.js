@@ -37,6 +37,26 @@ router.post('/image', requireAuth, uploadStatus.single('status'), async (req, re
   }
 });
 
+// POST /api/status/video (multipart field: "status") -> short video status with optional caption
+router.post('/video', requireAuth, uploadStatus.single('status'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No video uploaded' });
+    const status = await Status.create({
+      user: req.userId,
+      type: 'video',
+      mediaUrl: req.file.path,
+      caption: (req.body.caption || '').trim(),
+    });
+
+    const friends = await friendIds(req.userId);
+    friends.forEach((id) => emitToUser(req.app.locals.io, id, 'new_status', { from: req.userId }));
+
+    res.status(201).json(status);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not post status' });
+  }
+});
+
 // POST /api/status/text { caption, bgColor } -> WhatsApp-style plain colour status
 router.post('/text', requireAuth, async (req, res) => {
   try {
@@ -79,10 +99,10 @@ router.get('/feed', requireAuth, async (req, res) => {
 
     const feed = await Promise.all(
       [...grouped.entries()].map(async ([userId, items]) => {
-        const user = await User.findById(userId).select('username avatar');
+        const user = await User.findById(userId).select('username avatar verified');
         const hasUnseen = items.some((s) => !s.views.some((v) => String(v.user) === String(req.userId)));
         return {
-          user: { id: userId, username: user?.username, avatar: user?.avatar },
+          user: { id: userId, username: user?.username, avatar: user?.avatar, verified: user?.verified },
           statuses: items,
           hasUnseen,
           isMine: String(userId) === String(req.userId),

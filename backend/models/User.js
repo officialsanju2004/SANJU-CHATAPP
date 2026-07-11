@@ -43,6 +43,10 @@ const userSchema = new mongoose.Schema(
     privacy: {
       blockGroupAdd: { type: Boolean, default: false },
     },
+
+    // ✅ Verified badge (orange tick). Only the @sanju account is allowed to
+    // grant/revoke this - enforced in routes/users.js, not here.
+    verified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -70,6 +74,7 @@ userSchema.methods.toSafeObject = function () {
     avatar: this.avatar,
     chatLockEnabled: !!this.chatLock?.enabled,
     blockGroupAdd: !!this.privacy?.blockGroupAdd,
+    verified: !!this.verified,
   };
 };
 

@@ -114,7 +114,7 @@ router.get('/group/:groupId/messages', requireAuth, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate('replyTo', 'content type mediaUrl sender')
-      .populate('sender', 'username avatar')
+      .populate('sender', 'username avatar verified')
       .lean();
 
     page.reverse();
@@ -174,7 +174,11 @@ router.post('/upload', requireAuth, uploadChatMedia.single('media'), async (req,
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
-    const type = req.file.mimetype.startsWith('audio/') ? 'voice' : 'image';
+    const type = req.file.mimetype.startsWith('audio/')
+      ? 'voice'
+      : req.file.mimetype.startsWith('video/')
+      ? 'video'
+      : 'image';
     res.json({
       url: req.file.path,
       type,

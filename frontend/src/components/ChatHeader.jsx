@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Avatar from './Avatar.jsx';
+import VerifiedBadge from './VerifiedBadge.jsx';
 import { formatLastSeen } from '../utils/time.js';
 
 export default function ChatHeader({
@@ -14,6 +15,7 @@ export default function ChatHeader({
   isBlocked,
   onToggleBlock,
   onOpenGroupInfo,
+  onRenameContact,
 }) {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -26,7 +28,7 @@ export default function ChatHeader({
   }
 
   const isGroup = !!activeGroup;
-  const title = isGroup ? activeGroup.name : activeUser.username;
+  const title = isGroup ? activeGroup.name : activeUser.nickname || activeUser.username;
   const subtitle = isGroup
     ? `${activeGroup.members?.length || 0} members`
     : isTyping
@@ -50,7 +52,10 @@ export default function ChatHeader({
       <button onClick={isGroup ? onOpenGroupInfo : undefined} className="flex items-center gap-3 min-w-0">
         <Avatar username={title} avatar={isGroup ? activeGroup.avatar : activeUser.avatar} />
         <div className="min-w-0 text-left">
-          <p className="text-[15px] sm:text-sm font-semibold text-ember-50 truncate">{title}</p>
+          <p className="text-[15px] sm:text-sm font-semibold text-ember-50 truncate flex items-center gap-1">
+            {title}
+            {!isGroup && activeUser.verified && <VerifiedBadge size={14} />}
+          </p>
           <p className="text-xs text-ember-50/40 truncate">{subtitle}</p>
         </div>
       </button>
@@ -107,17 +112,28 @@ export default function ChatHeader({
                     Group info & members
                   </button>
                 ) : (
-                  <button
-                    onClick={() => {
-                      setShowMenu(false);
-                      onToggleBlock?.();
-                    }}
-                    className={`w-full text-left text-sm px-4 py-2.5 ${
-                      isBlocked ? 'text-ember-400' : 'text-red-400'
-                    } hover:bg-surface-light`}
-                  >
-                    {isBlocked ? `Unblock ${activeUser.username}` : `Block ${activeUser.username}`}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        onRenameContact?.();
+                      }}
+                      className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5"
+                    >
+                      Rename contact
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        onToggleBlock?.();
+                      }}
+                      className={`w-full text-left text-sm px-4 py-2.5 border-t border-surface-border ${
+                        isBlocked ? 'text-ember-400' : 'text-red-400'
+                      } hover:bg-surface-light`}
+                    >
+                      {isBlocked ? `Unblock ${activeUser.username}` : `Block ${activeUser.username}`}
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => {

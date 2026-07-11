@@ -5,6 +5,7 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js';
 import { linkify } from '../utils/linkify.js';
 import EmojiReactionPicker from './EmojiReactionPicker.jsx';
 import MessageOptionsMenu from './MessageOptionsMenu.jsx';
+import VerifiedBadge from './VerifiedBadge.jsx';
 
 // Two overlapping checkmarks, WhatsApp-style. Gray = sent, blue = seen.
 function Ticks({ seen }) {
@@ -251,6 +252,17 @@ function ViewOnceOverlay({ url, onClose }) {
   );
 }
 
+function VideoBubble({ src }) {
+  return (
+    <video
+      src={src}
+      controls
+      playsInline
+      className="max-w-[240px] sm:max-w-[280px] max-h-72 rounded-xl"
+    />
+  );
+}
+
 function VoiceBubble({ src, duration, mine }) {
   const audioRef = useRef(null);
   const [playing, setPlaying] = useState(false);
@@ -347,6 +359,34 @@ function ReactionsBar({ reactions, mine }) {
   );
 }
 
+function statusReplyPreview(s) {
+  if (!s) return '';
+  if (s.type === 'image') return '📷 Photo status';
+  if (s.type === 'video') return '🎥 Video status';
+  return s.caption;
+}
+
+function StatusReplyQuote({ statusReplyTo, mine }) {
+  if (!statusReplyTo) return null;
+  return (
+    <div
+      className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-[3px] text-xs flex items-center gap-2 ${
+        mine
+          ? 'bg-void-950/10 border-void-950/50 text-void-950/80'
+          : 'bg-void/50 border-ember-500/70 text-ember-50/80'
+      }`}
+    >
+      {statusReplyTo.mediaUrl && statusReplyTo.type === 'image' && (
+        <img src={mediaUrl(statusReplyTo.mediaUrl)} alt="status" className="w-8 h-8 rounded object-cover shrink-0" />
+      )}
+      <div className="min-w-0">
+        <p className="font-semibold mb-0.5">Replied to status</p>
+        <p className="truncate opacity-80">{statusReplyPreview(statusReplyTo)}</p>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   mine,
@@ -394,7 +434,10 @@ function MessageBubble({
   return (
     <SwipeToReply message={message} onReply={onReply}>
       {isGroup && !mine && (
-        <p className="text-xs font-medium text-ember-400 ml-1 mb-0.5">{message.sender?.username}</p>
+        <p className="text-xs font-medium text-ember-400 ml-1 mb-0.5 flex items-center gap-1">
+          {message.sender?.username}
+          {message.sender?.verified && <VerifiedBadge size={11} />}
+        </p>
       )}
       <div className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn`}>
         <div className="relative max-w-[82%] sm:max-w-[70%] group">
@@ -449,11 +492,15 @@ function MessageBubble({
               currentUserId={currentUserId}
               friendUsername={friendUsername}
             />
+            <StatusReplyQuote statusReplyTo={message.statusReplyTo} mine={mine} />
             {message.type === 'image' && message.viewOnce && (
               <ViewOnceBubble message={message} mine={mine} onOpen={handleOpenViewOnce} />
             )}
             {message.type === 'image' && !message.viewOnce && message.mediaUrl && (
               <ImageBubble src={mediaUrl(message.mediaUrl)} />
+            )}
+            {message.type === 'video' && message.mediaUrl && (
+              <VideoBubble src={mediaUrl(message.mediaUrl)} />
             )}
             {message.type === 'voice' && message.mediaUrl && (
               <VoiceBubble src={mediaUrl(message.mediaUrl)} duration={message.duration} mine={mine} />
@@ -678,10 +725,12 @@ export function MessageComposer({
     setUploading(true);
     try {
       const { data } = await chatApi.uploadMedia(file);
-      onSendMedia({ type: 'image', mediaUrl: data.url, viewOnce: viewOnceArmed });
+      // data.type is 'image' or 'video', decided server-side from the real
+      // file mimetype - view-once only makes sense for photos.
+      onSendMedia({ type: data.type, mediaUrl: data.url, viewOnce: data.type === 'image' && viewOnceArmed });
       setViewOnceArmed(false);
     } catch (err) {
-      setError(err.response?.data?.message || 'Image upload failed');
+      setError(err.response?.data?.message || 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -760,7 +809,7 @@ export function MessageComposer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             onChange={handleFilePick}
             className="hidden"
           />
@@ -769,7 +818,7 @@ export function MessageComposer({
             disabled={disabled || uploading}
             onClick={() => fileInputRef.current?.click()}
             className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-ember-50/50 hover:text-ember-400 hover:bg-void/60 disabled:opacity-40 transition-colors"
-            aria-label="Send image"
+            aria-label="Send image or video"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
               <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Zm-14-4 2.5-3 2 2.5L15 10l4 6H7Z" />

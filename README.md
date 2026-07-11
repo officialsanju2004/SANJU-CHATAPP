@@ -1,4 +1,4 @@
-# Ember Chat
+# Sanju Chat
 
 A real-time 1-to-1 chat app themed on the black + neon-orange logo. React + Tailwind on the front end, Express + Socket.io + MongoDB on the back end.
 

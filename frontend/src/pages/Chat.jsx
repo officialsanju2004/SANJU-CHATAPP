@@ -15,18 +15,20 @@ import PinLockScreen from '../components/PinLockScreen.jsx';
 import StatusViewer from '../components/StatusViewer.jsx';
 import StatusComposer from '../components/StatusComposer.jsx';
 import GroupInfoModal from '../components/GroupInfoModal.jsx';
+import RenameContactModal from '../components/RenameContactModal.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
   if (!message) return '';
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
+  if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
   if (message.deletedForEveryone) return 'This message was deleted';
   return message.content;
 }
 
 export default function Chat() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { socket, onlineUsers } = useSocket();
   const { notify, permission, requestPermission } = useNotifications();
   usePushNotifications(permission === 'granted');
@@ -44,6 +46,7 @@ export default function Chat() {
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showRenameContact, setShowRenameContact] = useState(false);
 
   const [incoming, setIncoming] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -348,6 +351,13 @@ export default function Chat() {
 
   useEffect(() => {
     if (!socket) return;
+    const handler = ({ verified }) => updateUser({ verified });
+    socket.on('verification_changed', handler);
+    return () => socket.off('verification_changed', handler);
+  }, [socket, updateUser]);
+
+  useEffect(() => {
+    if (!socket) return;
     const handler = () => loadStatusFeed();
     socket.on('new_status', handler);
     return () => socket.off('new_status', handler);
@@ -554,6 +564,36 @@ export default function Chat() {
     await privacyApi.update(value).catch(() => {});
   };
 
+  const handleNicknameSaved = (nickname) => {
+    if (!activeUser) return;
+    setFriends((prev) => prev.map((f) => (f._id === activeUser._id ? { ...f, nickname } : f)));
+    setActiveConversation((prev) =>
+      prev?.type === 'dm' ? { ...prev, user: { ...prev.user, nickname } } : prev
+    );
+  };
+
+  // A status reply is really just a normal DM to the status owner, with a
+  // snapshot of the status attached so the quote keeps working after the
+  // status itself expires.
+  const handleStatusReply = useCallback(
+    (text, status, statusOwner) => {
+      if (!socket) return;
+      socket.emit(
+        'send_message',
+        { receiver: statusOwner.id || statusOwner._id, type: 'text', content: text, statusReplyTo: status._id },
+        (result) => {
+          if (result && !result.error) {
+            setSummaries((prev) => ({
+              ...prev,
+              [statusOwner.id || statusOwner._id]: { lastMessage: result, unreadCount: 0 },
+            }));
+          }
+        }
+      );
+    },
+    [socket]
+  );
+
   const conversations = useMemo(() => {
     const dmItems = friends.map((f) => {
       const summary = summaries[f._id];
@@ -561,8 +601,9 @@ export default function Chat() {
         key: `dm-${f._id}`,
         type: 'dm',
         raw: f,
-        title: f.username,
+        title: f.nickname || f.username,
         avatar: f.avatar,
+        verified: f.verified,
         isOnline: onlineUsers?.includes(f._id),
         preview: summary?.lastMessage ? previewFor(summary.lastMessage) : 'Say hello 👋',
         unread: summary?.unreadCount || 0,
@@ -654,6 +695,7 @@ export default function Chat() {
           isBlocked={activeUser && blockedIds.has(activeUser._id)}
           onToggleBlock={handleToggleBlock}
           onOpenGroupInfo={() => setShowGroupInfo(true)}
+          onRenameContact={() => setShowRenameContact(true)}
         />
         {messageError && (
           <div className="mx-4 sm:mx-6 mt-3 text-sm text-ember-200 bg-ember-900/40 border border-ember-700/50 rounded-lg px-3 py-2">
@@ -701,6 +743,7 @@ export default function Chat() {
             loadStatusFeed();
           }}
           onDeleted={() => loadStatusFeed()}
+          onReply={handleStatusReply}
         />
       )}
       {composingStatus && <StatusComposer onClose={() => setComposingStatus(false)} onPosted={loadStatusFeed} />}
@@ -719,6 +762,14 @@ export default function Chat() {
             setActiveConversation(null);
             loadGroups();
           }}
+        />
+      )}
+
+      {showRenameContact && activeUser && (
+        <RenameContactModal
+          friend={activeUser}
+          onClose={() => setShowRenameContact(false)}
+          onSaved={handleNicknameSaved}
         />
       )}
     </div>

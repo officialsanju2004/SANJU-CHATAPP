@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { groupsApi } from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Avatar from './Avatar.jsx';
+import VerifiedBadge from './VerifiedBadge.jsx';
 
 export default function GroupInfoModal({ group, friends, onClose, onUpdated, onLeft }) {
   const { user } = useAuth();
@@ -70,8 +71,8 @@ export default function GroupInfoModal({ group, friends, onClose, onUpdated, onL
               <div key={id} className="flex items-center gap-3 px-2 py-2">
                 <Avatar username={u?.username} avatar={u?.avatar} size="sm" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-ember-50 truncate">
-                    {u?.username} {id === user.id && '(you)'}
+                  <p className="text-sm text-ember-50 truncate flex items-center gap-1">
+                    {u?.username} {u?.verified && <VerifiedBadge size={12} />} {id === user.id && '(you)'}
                   </p>
                   {m.role === 'admin' && <p className="text-[10px] text-ember-400">Admin</p>}
                 </div>

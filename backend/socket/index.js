@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import Message from '../models/Message.js';
+import Status from '../models/Status.js';
 import Friendship from '../models/Friendship.js';
 import User from '../models/User.js';
 import Block from '../models/Block.js';
@@ -70,6 +71,7 @@ export function isUserOnline(userId) {
 
 function previewFor(message) {
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
+  if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
   return message.content;
 }
@@ -125,7 +127,10 @@ export function initSocket(io) {
 
     socket.on(
       'send_message',
-      async ({ receiver, groupId, content, type, mediaUrl, duration, replyTo, viewOnce }, callback) => {
+      async (
+        { receiver, groupId, content, type, mediaUrl, duration, replyTo, viewOnce, statusReplyTo },
+        callback
+      ) => {
         try {
           const messageType = type || 'text';
           if (!receiver && !groupId) return callback?.({ error: 'No recipient specified' });
@@ -161,6 +166,23 @@ export function initSocket(io) {
             if (original) replyToId = original._id;
           }
 
+          // Replying to a status: snapshot its content now, since the
+          // status itself auto-expires after 24h and the quote should keep
+          // working after that.
+          let statusReplySnapshot = null;
+          if (statusReplyTo && !group) {
+            const status = await Status.findById(statusReplyTo);
+            if (status) {
+              statusReplySnapshot = {
+                statusId: status._id,
+                type: status.type,
+                mediaUrl: status.mediaUrl,
+                caption: status.caption,
+                bgColor: status.bgColor,
+              };
+            }
+          }
+
           let message = await Message.create({
             sender: userId,
             receiver: group ? null : receiver,
@@ -171,6 +193,7 @@ export function initSocket(io) {
             mediaUrl: mediaUrl || '',
             duration: duration || 0,
             replyTo: replyToId,
+            statusReplyTo: statusReplySnapshot,
             viewOnce: !group && messageType === 'image' ? !!viewOnce : false,
             seenBy: group ? [{ user: userId, seenAt: new Date() }] : [],
           });
@@ -179,7 +202,7 @@ export function initSocket(io) {
             message = await message.populate('replyTo', 'content type mediaUrl sender');
           }
           if (group) {
-            message = await message.populate('sender', 'username avatar');
+            message = await message.populate('sender', 'username avatar verified');
           }
 
           const sender = await User.findById(userId).select('username avatar');

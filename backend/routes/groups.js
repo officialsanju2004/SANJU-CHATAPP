@@ -58,7 +58,7 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const groups = await Group.find({ 'members.user': req.userId }).populate(
       'members.user',
-      'username avatar'
+      'username avatar verified'
     );
 
     const withPreviews = await Promise.all(
@@ -89,7 +89,7 @@ router.get('/', requireAuth, async (req, res) => {
 // GET /api/groups/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {
-    const group = await Group.findById(req.params.id).populate('members.user', 'username avatar');
+    const group = await Group.findById(req.params.id).populate('members.user', 'username avatar verified');
     if (!group || !group.isMember(req.userId)) {
       return res.status(404).json({ message: 'Group not found' });
     }

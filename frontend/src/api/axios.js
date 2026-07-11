@@ -20,6 +20,7 @@ export const friendsApi = {
   accept: (id) => api.post(`/friends/requests/${id}/accept`),
   decline: (id) => api.post(`/friends/requests/${id}/decline`),
   list: () => api.get('/friends'),
+  setNickname: (friendUserId, nickname) => api.patch(`/friends/${friendUserId}/nickname`, { nickname }),
 };
 
 export const chatApi = {
@@ -104,10 +105,26 @@ export const statusApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  postVideo: (file, caption) => {
+    const form = new FormData();
+    form.append('status', file);
+    if (caption) form.append('caption', caption);
+    return api.post('/status/video', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   postText: (caption, bgColor) => api.post('/status/text', { caption, bgColor }),
   markViewed: (statusId) => api.post(`/status/${statusId}/view`),
   viewers: (statusId) => api.get(`/status/${statusId}/viewers`),
   remove: (statusId) => api.delete(`/status/${statusId}`),
+};
+
+// ✅ Verified badge (only the @sanju account can call grant/revoke - the
+// backend enforces this too, this is just for UI convenience)
+export const verifyApi = {
+  search: (q) => api.get('/users/verify/search', { params: { q } }),
+  grant: (userId) => api.post(`/users/${userId}/verify`),
+  revoke: (userId) => api.delete(`/users/${userId}/verify`),
 };
 
 // ✅ Account deletion (separate from sign out)

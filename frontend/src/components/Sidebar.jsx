@@ -7,6 +7,8 @@ import ChatLockSettings from './ChatLockSettings.jsx';
 import DeleteAccountModal from './DeleteAccountModal.jsx';
 import BlockedUsersModal from './BlockedUsersModal.jsx';
 import CreateGroupModal from './CreateGroupModal.jsx';
+import VerifiedBadge from './VerifiedBadge.jsx';
+import VerifyUsersModal from './VerifyUsersModal.jsx';
 
 export default function Sidebar({
   tab,
@@ -37,6 +39,9 @@ export default function Sidebar({
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showVerifyUsers, setShowVerifyUsers] = useState(false);
+
+  const isSanju = user?.username?.toLowerCase() === 'sanju';
 
   return (
     <aside
@@ -50,7 +55,10 @@ export default function Sidebar({
         </button>
         <div className="min-w-0">
           <p className="font-display font-semibold text-sm text-ember-50 truncate">Sanju Chat</p>
-          <p className="text-xs text-ember-50/40 truncate">@{user?.username}</p>
+          <p className="text-xs text-ember-50/40 truncate flex items-center gap-1">
+            @{user?.username}
+            {user?.verified && <VerifiedBadge size={12} />}
+          </p>
         </div>
 
         <button
@@ -96,6 +104,17 @@ export default function Sidebar({
               >
                 Blocked users
               </button>
+              {isSanju && (
+                <button
+                  onClick={() => {
+                    setShowSettingsMenu(false);
+                    setShowVerifyUsers(true);
+                  }}
+                  className="w-full text-left text-sm text-ember-400 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border flex items-center gap-1.5"
+                >
+                  Manage verified badges <VerifiedBadge size={13} />
+                </button>
+              )}
               <button
                 onClick={() => onTogglePrivacy(!privacyBlockGroupAdd)}
                 className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border flex items-center justify-between"
@@ -164,6 +183,7 @@ export default function Sidebar({
       )}
       {showDeleteAccount && <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />}
       {showBlockedUsers && <BlockedUsersModal onClose={() => setShowBlockedUsers(false)} />}
+      {showVerifyUsers && <VerifyUsersModal onClose={() => setShowVerifyUsers(false)} />}
       {showCreateGroup && (
         <CreateGroupModal
           friends={friendsForGroupCreation}
@@ -228,9 +248,10 @@ export default function Sidebar({
             >
               <Avatar username={c.title} avatar={c.avatar} online={!c.isGroup && c.isOnline} />
               <div className="min-w-0 flex-1">
-                <p className={`text-[15px] sm:text-sm truncate ${c.unread > 0 ? 'font-semibold' : 'font-medium'} text-ember-50`}>
-                  {c.title}
-                  {c.isGroup && <span className="text-ember-50/30 text-xs font-normal ml-1">group</span>}
+                <p className={`text-[15px] sm:text-sm truncate flex items-center gap-1 ${c.unread > 0 ? 'font-semibold' : 'font-medium'} text-ember-50`}>
+                  <span className="truncate">{c.title}</span>
+                  {c.verified && <VerifiedBadge size={13} />}
+                  {c.isGroup && <span className="text-ember-50/30 text-xs font-normal">group</span>}
                 </p>
                 <p className={`text-xs truncate ${c.unread > 0 ? 'text-ember-50/80 font-medium' : 'text-ember-50/35'}`}>
                   {c.preview}

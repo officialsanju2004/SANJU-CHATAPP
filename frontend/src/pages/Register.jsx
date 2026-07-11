@@ -34,7 +34,7 @@ export default function Register() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8 animate-floatIn">
           <div className="w-16 h-16 rounded-2xl border-2 border-ember-500 shadow-neon flex items-center justify-center mb-4 bg-void">
-            <span className="font-display font-bold text-ember-500 text-xl">EC</span>
+            <span className="font-display font-bold text-ember-500 text-xl">SC</span>
           </div>
           <h1 className="font-display font-bold text-2xl tracking-tight text-ember-50">
             Create your account

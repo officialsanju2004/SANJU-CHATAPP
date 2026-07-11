@@ -9,6 +9,12 @@ const friendshipSchema = new mongoose.Schema(
       enum: ['pending', 'accepted', 'rejected'],
       default: 'pending',
     },
+
+    // ✅ Contact nicknames: what EACH side privately calls the other, like
+    // saving a phone contact under your own name for them. Never visible to
+    // or changes the other person's real username.
+    requesterNickname: { type: String, trim: true, maxlength: 30, default: '' }, // set BY requester, FOR recipient
+    recipientNickname: { type: String, trim: true, maxlength: 30, default: '' }, // set BY recipient, FOR requester
   },
   { timestamps: true }
 );
@@ -24,6 +30,12 @@ friendshipSchema.statics.findBetween = function (userA, userB) {
       { requester: userB, recipient: userA },
     ],
   });
+};
+
+// The nickname `viewerId` has set for the other person in this friendship, if any
+friendshipSchema.methods.nicknameFor = function (viewerId) {
+  const isRequester = String(this.requester) === String(viewerId);
+  return isRequester ? this.requesterNickname : this.recipientNickname;
 };
 
 export default mongoose.model('Friendship', friendshipSchema);

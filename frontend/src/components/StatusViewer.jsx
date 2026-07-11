@@ -4,25 +4,39 @@ import Avatar from './Avatar.jsx';
 
 const SLIDE_MS = 5000;
 
-export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
+export default function StatusViewer({ entry, isMine, onClose, onDeleted, onReply }) {
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [viewers, setViewers] = useState(null);
   const [showViewers, setShowViewers] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [paused, setPaused] = useState(false);
+  const [sent, setSent] = useState(false);
   const timerRef = useRef(null);
   const startRef = useRef(0);
+  const videoRef = useRef(null);
 
   const statuses = entry.statuses;
   const current = statuses[index];
+  const isVideo = current.type === 'video';
 
   useEffect(() => {
     if (!isMine) {
       statusApi.markViewed(current._id).catch(() => {});
     }
     setProgress(0);
+    setSent(false);
     startRef.current = Date.now();
 
+    // Video statuses advance when the clip ends (see onEnded below), not on
+    // a fixed timer - images and text statuses still use the 5s timer.
+    if (isVideo) return undefined;
+
     const tick = () => {
+      if (paused) {
+        timerRef.current = requestAnimationFrame(tick);
+        return;
+      }
       const elapsed = Date.now() - startRef.current;
       setProgress(Math.min(elapsed / SLIDE_MS, 1));
       if (elapsed >= SLIDE_MS) {
@@ -35,7 +49,7 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
 
     return () => cancelAnimationFrame(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, current._id]);
+  }, [index, current._id, paused]);
 
   const goNext = () => {
     if (index < statuses.length - 1) setIndex((i) => i + 1);
@@ -60,6 +74,15 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
     await statusApi.remove(current._id);
     onDeleted?.(current._id);
     onClose();
+  };
+
+  const handleSendReply = () => {
+    const trimmed = replyText.trim();
+    if (!trimmed) return;
+    onReply?.(trimmed, current, entry.user);
+    setReplyText('');
+    setSent(true);
+    setTimeout(() => setSent(false), 1500);
   };
 
   return (
@@ -93,13 +116,35 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
 
         {/* Content */}
         <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-          {/* Tap zones */}
-          <button onClick={goPrev} className="absolute left-0 top-0 w-1/3 h-full z-10" aria-label="Previous" />
-          <button onClick={goNext} className="absolute right-0 top-0 w-1/3 h-full z-10" aria-label="Next" />
+          {/* Tap zones (video has its own controls, so skip zones over it) */}
+          {!isVideo && (
+            <>
+              <button onClick={goPrev} className="absolute left-0 top-0 w-1/3 h-full z-10" aria-label="Previous" />
+              <button onClick={goNext} className="absolute right-0 top-0 w-1/3 h-full z-10" aria-label="Next" />
+            </>
+          )}
 
-          {current.type === 'image' ? (
+          {current.type === 'image' && (
             <img src={mediaUrl(current.mediaUrl)} alt="status" className="max-h-full max-w-full object-contain" />
-          ) : (
+          )}
+
+          {current.type === 'video' && (
+            <video
+              ref={videoRef}
+              src={mediaUrl(current.mediaUrl)}
+              autoPlay
+              playsInline
+              controls
+              className="max-h-full max-w-full"
+              onEnded={goNext}
+              onTimeUpdate={(e) => {
+                const v = e.target;
+                if (v.duration) setProgress(v.currentTime / v.duration);
+              }}
+            />
+          )}
+
+          {current.type === 'text' && (
             <div
               className="w-full h-full flex items-center justify-center px-8"
               style={{ backgroundColor: current.bgColor }}
@@ -108,15 +153,15 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
             </div>
           )}
 
-          {current.type === 'image' && current.caption && (
+          {current.type !== 'text' && current.caption && (
             <p className="absolute bottom-6 left-4 right-4 text-white text-sm bg-black/40 rounded-lg px-3 py-2">
               {current.caption}
             </p>
           )}
         </div>
 
-        {/* Own status: viewers + delete */}
-        {isMine && (
+        {/* Own status: viewers + delete. Friend's status: reply box */}
+        {isMine ? (
           <div className="px-4 py-3 flex items-center justify-between">
             <button
               onClick={loadViewers}
@@ -130,6 +175,29 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted }) {
             <button onClick={handleDelete} className="text-red-400 text-sm hover:text-red-300">
               Delete
             </button>
+          </div>
+        ) : (
+          <div className="px-4 py-3 flex items-center gap-2">
+            <input
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onFocus={() => setPaused(true)}
+              onBlur={() => setPaused(false)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
+              placeholder={`Reply to ${entry.user.username}'s status…`}
+              className="flex-1 bg-white/10 border border-white/15 rounded-full px-4 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-ember-500"
+            />
+            <button
+              onClick={handleSendReply}
+              disabled={!replyText.trim()}
+              className="w-10 h-10 shrink-0 rounded-full bg-ember-500 disabled:opacity-30 flex items-center justify-center"
+              aria-label="Send reply"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" className="fill-void-950">
+                <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
+              </svg>
+            </button>
+            {sent && <span className="text-xs text-ember-400 absolute -top-6 right-4">Sent ✓</span>}
           </div>
         )}
       </div>

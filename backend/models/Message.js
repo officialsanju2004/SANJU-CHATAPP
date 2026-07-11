@@ -16,6 +16,17 @@ const seenBySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const statusReplySchema = new mongoose.Schema(
+  {
+    statusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Status', required: true },
+    type: { type: String, enum: ['image', 'video', 'text'] },
+    mediaUrl: { type: String, default: '' },
+    caption: { type: String, default: '' },
+    bgColor: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const messageSchema = new mongoose.Schema(
   {
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -31,7 +42,7 @@ const messageSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ['text', 'image', 'voice'],
+      enum: ['text', 'image', 'video', 'voice'],
       default: 'text',
     },
     content: { type: String, trim: true, maxlength: 2000, default: '' },
@@ -45,6 +56,12 @@ const messageSchema = new mongoose.Schema(
     seenBy: [seenBySchema],
 
     replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
+
+    // ✅ A text reply sent from someone's status - snapshot (not a live ref)
+    // since the original Status auto-expires after 24h and we still want the
+    // quote to render correctly after that.
+    statusReplyTo: { type: statusReplySchema, default: null },
+
     deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
     viewOnce: { type: Boolean, default: false },

@@ -3,6 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadAvatar } from '../middleware/upload.js';
+import { emitToUser } from '../socket/index.js';
 
 const router = Router();
 
@@ -44,6 +45,49 @@ router.patch('/privacy', requireAuth, async (req, res) => {
   const { blockGroupAdd } = req.body;
   await User.findByIdAndUpdate(req.userId, { 'privacy.blockGroupAdd': !!blockGroupAdd });
   res.json({ blockGroupAdd: !!blockGroupAdd });
+});
+
+// The one account allowed to grant/revoke the verified badge. Kept as a
+// single constant rather than a role/permission system since this is a
+// one-person power by design, not a general admin role.
+const VERIFIER_USERNAME = 'sanju';
+
+async function requireVerifier(req, res, next) {
+  const me = await User.findById(req.userId).select('username');
+  if (me?.username?.toLowerCase() !== VERIFIER_USERNAME) {
+    return res.status(403).json({ message: 'Only @sanju can manage verified badges' });
+  }
+  next();
+}
+
+// GET /api/users/verify/search?q=username -> find anyone (not just friends) to verify
+router.get('/verify/search', requireAuth, requireVerifier, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const users = await User.find({ username: { $regex: q, $options: 'i' } })
+    .select('username avatar verified')
+    .limit(15);
+  res.json(users);
+});
+
+// POST /api/users/:userId/verify -> grant the orange tick
+router.post('/:userId/verify', requireAuth, requireVerifier, async (req, res) => {
+  const target = await User.findByIdAndUpdate(req.params.userId, { verified: true }, { new: true }).select(
+    'username verified'
+  );
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  emitToUser(req.app.locals.io, target._id, 'verification_changed', { verified: true });
+  res.json({ username: target.username, verified: true });
+});
+
+// DELETE /api/users/:userId/verify -> revoke it
+router.delete('/:userId/verify', requireAuth, requireVerifier, async (req, res) => {
+  const target = await User.findByIdAndUpdate(req.params.userId, { verified: false }, { new: true }).select(
+    'username verified'
+  );
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  emitToUser(req.app.locals.io, target._id, 'verification_changed', { verified: false });
+  res.json({ username: target.username, verified: false });
 });
 
 export default router;

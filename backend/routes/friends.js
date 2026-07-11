@@ -17,7 +17,7 @@ router.get('/search', requireAuth, async (req, res) => {
       _id: { $ne: req.userId },
       username: { $regex: q, $options: 'i' },
     })
-      .select('username avatar lastSeen')
+      .select('username avatar lastSeen verified')
       .limit(15);
 
     const results = await Promise.all(
@@ -30,7 +30,14 @@ router.get('/search', requireAuth, async (req, res) => {
             status = String(relation.requester) === String(req.userId) ? 'pending_sent' : 'pending_received';
           }
         }
-        return { _id: u._id, username: u.username, avatar: u.avatar, lastSeen: u.lastSeen, status };
+        return {
+          _id: u._id,
+          username: u.username,
+          avatar: u.avatar,
+          lastSeen: u.lastSeen,
+          verified: u.verified,
+          status,
+        };
       })
     );
 
@@ -163,17 +170,54 @@ router.get('/', requireAuth, async (req, res) => {
       status: 'accepted',
       $or: [{ requester: req.userId }, { recipient: req.userId }],
     })
-      .populate('requester', 'username avatar lastSeen')
-      .populate('recipient', 'username avatar lastSeen');
+      .populate('requester', 'username avatar lastSeen verified')
+      .populate('recipient', 'username avatar lastSeen verified');
 
     const friends = friendships.map((f) => {
       const isRequester = String(f.requester._id) === String(req.userId);
-      return isRequester ? f.recipient : f.requester;
+      const other = isRequester ? f.recipient : f.requester;
+      const nickname = f.nicknameFor(req.userId);
+      return {
+        _id: other._id,
+        username: other.username,
+        avatar: other.avatar,
+        lastSeen: other.lastSeen,
+        verified: other.verified,
+        nickname: nickname || '',
+      };
     });
 
     res.json(friends);
   } catch (err) {
     res.status(500).json({ message: 'Could not load friends' });
+  }
+});
+
+// PATCH /api/friends/:friendUserId/nickname { nickname } -> your own private
+// name for this friend, like saving a phone contact. Doesn't touch their
+// actual username or notify them in any way.
+router.patch('/:friendUserId/nickname', requireAuth, async (req, res) => {
+  try {
+    const { friendUserId } = req.params;
+    const { nickname } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(friendUserId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const relation = await Friendship.findBetween(req.userId, friendUserId);
+    if (!relation || relation.status !== 'accepted') {
+      return res.status(404).json({ message: 'You are not friends with this user' });
+    }
+
+    const trimmed = (nickname || '').trim().slice(0, 30);
+    const isRequester = String(relation.requester) === String(req.userId);
+    if (isRequester) relation.requesterNickname = trimmed;
+    else relation.recipientNickname = trimmed;
+    await relation.save();
+
+    res.json({ nickname: trimmed });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update nickname' });
   }
 });
 

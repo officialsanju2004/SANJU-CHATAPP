@@ -59,8 +59,7 @@ const statusStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: 'sanju-chat/status',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1080, height: 1920, crop: 'limit' }],
+    resource_type: 'auto', // image or short video
   },
 });
 
@@ -71,10 +70,22 @@ const imageFilter = (req, file, cb) => {
   cb(null, true);
 };
 
-// Chat media can be an image or an audio voice note
+// Chat media can be an image, a short video, or an audio voice note
 const chatMediaFilter = (req, file, cb) => {
-  if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('audio/')) {
-    return cb(new Error('Only image or audio files are allowed'));
+  if (
+    !file.mimetype.startsWith('image/') &&
+    !file.mimetype.startsWith('audio/') &&
+    !file.mimetype.startsWith('video/')
+  ) {
+    return cb(new Error('Only image, video, or audio files are allowed'));
+  }
+  cb(null, true);
+};
+
+// Status can be an image or a short video
+const statusFilter = (req, file, cb) => {
+  if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
+    return cb(new Error('Only image or video files are allowed'));
   }
   cb(null, true);
 };
@@ -87,12 +98,12 @@ export const uploadAvatar = multer({
 
 export const uploadChatMedia = multer({
   storage: mediaStorage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB (covers voice notes)
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (covers short videos + voice notes)
   fileFilter: chatMediaFilter,
 });
 
 export const uploadStatus = multer({
   storage: statusStorage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
-  fileFilter: imageFilter,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (covers short status videos)
+  fileFilter: statusFilter,
 });
