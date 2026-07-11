@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { statusApi, mediaUrl } from '../api/axios.js';
 import Avatar from './Avatar.jsx';
+import { formatMessageTime } from '../utils/time.js';
 
 const SLIDE_MS = 5000;
 
@@ -105,7 +106,7 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted, onRepl
           <Avatar username={entry.user.username} avatar={entry.user.avatar} size="sm" />
           <span className="text-white text-sm font-medium">{isMine ? 'You' : entry.user.username}</span>
           <span className="text-white/50 text-xs">
-            {new Date(current.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {formatMessageTime(current.createdAt)}
           </span>
           <button onClick={onClose} className="ml-auto text-white/70 hover:text-white p-1">
             <svg viewBox="0 0 24 24" width="22" height="22" className="fill-current">
@@ -220,7 +221,7 @@ export default function StatusViewer({ entry, isMine, onClose, onDeleted, onRepl
                 <Avatar username={v.user.username} avatar={v.user.avatar} size="sm" />
                 <span className="text-sm text-ember-50 flex-1">{v.user.username}</span>
                 <span className="text-xs text-ember-50/40">
-                  {new Date(v.viewedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatMessageTime(v.viewedAt)}
                 </span>
               </div>
             ))}

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { mediaUrl, chatApi } from '../api/axios.js';
-import { formatMessageTime, formatDuration } from '../utils/time.js';
+import { formatMessageTime, formatDuration, formatDateSeparator, isDifferentDay } from '../utils/time.js';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js';
 import { linkify } from '../utils/linkify.js';
 import EmojiReactionPicker from './EmojiReactionPicker.jsx';
@@ -556,6 +556,16 @@ function MessageBubble({
   );
 }
 
+function DateSeparator({ date }) {
+  return (
+    <div className="flex justify-center my-3">
+      <span className="text-[11px] font-medium text-ember-50/50 bg-surface-light border border-surface-border rounded-full px-3 py-1">
+        {formatDateSeparator(date)}
+      </span>
+    </div>
+  );
+}
+
 export function MessageList({
   messages,
   currentUserId,
@@ -627,23 +637,29 @@ export function MessageList({
           No messages yet — say hello 👋
         </p>
       )}
-      {messages.map((m) => (
-        <MessageBubble
-          key={m._id}
-          message={m}
-          mine={m.sender === currentUserId || m.sender?._id === currentUserId}
-          onReply={onReply}
-          showSeenLabel={m._id === lastSeenMineId}
-          currentUserId={currentUserId}
-          friendUsername={friendUsername}
-          onReact={onReact}
-          onOpenViewOnce={onOpenViewOnce}
-          onEdit={onEdit}
-          onUnsend={onUnsend}
-          isGroup={isGroup}
-          memberCount={memberCount}
-        />
-      ))}
+      {messages.map((m, i) => {
+        const prev = messages[i - 1];
+        const showDateSeparator = isDifferentDay(m.createdAt, prev?.createdAt);
+        return (
+          <div key={m._id}>
+            {showDateSeparator && <DateSeparator date={m.createdAt} />}
+            <MessageBubble
+              message={m}
+              mine={m.sender === currentUserId || m.sender?._id === currentUserId}
+              onReply={onReply}
+              showSeenLabel={m._id === lastSeenMineId}
+              currentUserId={currentUserId}
+              friendUsername={friendUsername}
+              onReact={onReact}
+              onOpenViewOnce={onOpenViewOnce}
+              onEdit={onEdit}
+              onUnsend={onUnsend}
+              isGroup={isGroup}
+              memberCount={memberCount}
+            />
+          </div>
+        );
+      })}
       {typing && (
         <div className="flex justify-start">
           <div className="bg-surface-light border border-surface-border rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
