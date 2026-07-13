@@ -69,6 +69,11 @@ function SwipeToReply({ message, onReply, children }) {
   const THRESHOLD = 46;
 
   const handlePointerDown = (e) => {
+    if (
+  e.target.closest("button") ||
+  e.target.closest("[data-menu]")
+)
+  return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     startRef.current = { x: e.clientX, y: e.clientY };
     draggingRef.current = true;
@@ -472,9 +477,9 @@ function MessageBubble({
           )}
 
           <button
-          
-            onClick={() => {setShowMenu((v) => !v); alert('Message options menu is under development.');}}
-           
+          data-menu
+            onClick={(e) => {e.stopPropagation(); setShowMenu((v) => !v); }}
+           onPointerDown={(e)=>{e.stopPropagation();}}
             className={`absolute -top-1 ${
               mine ? '-left-7' : '-right-7'
             } w-6 h-6 rounded-full flex items-center justify-center text-ember-50/0 group-hover:text-ember-50/50 hover:!text-ember-50 hover:bg-void/60 transition-colors`}
