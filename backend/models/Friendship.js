@@ -39,7 +39,10 @@ friendshipSchema.statics.findBetween = function (userA, userB) {
 
 // The nickname `viewerId` has set for the other person in this friendship, if any
 friendshipSchema.methods.nicknameFor = function (viewerId) {
-  const isRequester = String(this.requester) === String(viewerId);
+  // this.requester can be a populated User doc or a raw ObjectId,
+  // so unwrap _id first before comparing
+  const requesterId = this.requester?._id ?? this.requester;
+  const isRequester = String(requesterId) === String(viewerId);
   return isRequester ? this.requesterNickname : this.recipientNickname;
 };
 
