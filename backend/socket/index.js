@@ -7,7 +7,7 @@ import Block from '../models/Block.js';
 import Group from '../models/Group.js';
 import { sendPushToUser } from '../utils/webpush.js';
 import { getAIReply } from '../utils/aiAssistant.js';
-
+import { decryptText } from '../utils/encryption.js';
 // userId -> Set of socket ids (a user can have multiple tabs/devices open)
 export const onlineUsers = new Map();
 
@@ -152,9 +152,9 @@ async function replyAsAssistant(io, conversationId, userId, botId) {
   recent.reverse();
 
   const history = recent.map((m) => ({
-    role: String(m.sender) === String(botId) ? 'assistant' : 'user',
-    content: m.content,
-  }));
+  role: String(m.sender) === String(botId) ? 'assistant' : 'user',
+  content: decryptText(m.content),
+}));
   if (history.length === 0 || history[history.length - 1].role !== 'user') return;
 
   const replyText = await getAIReply(history);
