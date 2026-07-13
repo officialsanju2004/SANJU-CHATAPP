@@ -10,13 +10,19 @@ import friendRoutes from './routes/friends.js';
 import userRoutes from './routes/users.js';
 import pushRoutes from './routes/push.js';
 import lockRoutes from './routes/lock.js';
+
 import statusRoutes from './routes/status.js';
+
 import accountRoutes from './routes/account.js';
 import blockRoutes from './routes/block.js';
 import groupRoutes from './routes/groups.js';
+import remindersRoutes from './routes/reminders.js';
 import { initSocket } from './socket/index.js';
 import scheduledRoutes from './routes/scheduled.js';
+
 import { startScheduledMessageWorker } from './utils/scheduleMessageWorker.js';
+import { startReminderScheduler } from './utils/reminderScheduler.js';
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -45,12 +51,13 @@ app.use('/api/account', accountRoutes);
 app.use('/api/block', blockRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/scheduled', scheduledRoutes);
-
+app.use('/api/reminders', remindersRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 initSocket(io);
 startScheduledMessageWorker(io);
+startReminderScheduler(io);
 
 const PORT = process.env.PORT || 5000;
 

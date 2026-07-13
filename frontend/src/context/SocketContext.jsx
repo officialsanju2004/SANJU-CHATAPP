@@ -21,9 +21,14 @@ export function SocketProvider({ children }) {
     socketRef.current = socket;
 
     socket.on('online_users', (users) => setOnlineUsers(users));
+    socket.on('reminder', (data) => {
+      console.log('Received reminder:', data);
+      alert(`Reminder: ${data.title}\n${data.body}`);
+    });
 
     return () => {
       socket.off('online_users');
+      socket.off('reminder');
       socket.disconnect();
     };
   }, [token, user]);
