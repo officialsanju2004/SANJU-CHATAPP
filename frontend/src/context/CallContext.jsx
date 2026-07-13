@@ -36,8 +36,6 @@ export function CallProvider({ children }) {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
-    channelCount: 1,
-    sampleRate: 48000,
   };
 
   const clearRingTimeout = useCallback(() => {
@@ -58,28 +56,6 @@ export function CallProvider({ children }) {
     setIsScreenSharing(false);
     cameraTrackRef.current = null;
   }, [localStream]);
-
-  // ✅ HD audio: WebRTC's default Opus bitrate is quite low (~24-32kbps,
-  // tuned for clean voice on narrow networks). When there's background
-  // noise the encoder has to compress voice + noise together into that same
-  // small budget, which is what causes the crushed/tinny "mic" sound.
-  // Raising the sender's max bitrate lets Opus switch to its higher-quality
-  // full-band mode instead. Silently no-ops on browsers that don't support
-  // setParameters() for audio - falls back to default bitrate there.
-  const boostAudioBitrate = useCallback(async (pc, bitrate = 128000) => {
-    const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
-    if (!sender) return;
-    try {
-      const params = sender.getParameters();
-      if (!params.encodings || params.encodings.length === 0) {
-        params.encodings = [{}];
-      }
-      params.encodings[0].maxBitrate = bitrate;
-      await sender.setParameters(params);
-    } catch {
-      // not supported here - default bitrate still applies
-    }
-  }, []);
 
   const endCall = useCallback(
     (notifyPeer = true) => {
@@ -139,7 +115,6 @@ export function CallProvider({ children }) {
 
         const pc = buildPeerConnection(targetUser._id);
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-        await boostAudioBitrate(pc);
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -158,7 +133,7 @@ export function CallProvider({ children }) {
         setCallState('idle');
       }
     },
-    [socket, callState, buildPeerConnection, boostAudioBitrate, cleanup, clearRingTimeout, endCall]
+    [socket, callState, buildPeerConnection, cleanup, clearRingTimeout, endCall]
   );
 
   const acceptCall = useCallback(async () => {
@@ -175,7 +150,6 @@ export function CallProvider({ children }) {
 
       const pc = buildPeerConnection(pending.from);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-      await boostAudioBitrate(pc);
 
       await pc.setRemoteDescription(new RTCSessionDescription(pending.offer));
       for (const candidate of pendingCandidatesRef.current) {
@@ -195,7 +169,7 @@ export function CallProvider({ children }) {
       setCallState('idle');
       setPeerUser(null);
     }
-  }, [socket, buildPeerConnection, boostAudioBitrate, cleanup, clearRingTimeout]);
+  }, [socket, buildPeerConnection, cleanup, clearRingTimeout]);
 
   const rejectCall = useCallback(() => {
     clearRingTimeout();
