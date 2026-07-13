@@ -472,7 +472,9 @@ function MessageBubble({
           )}
 
           <button
-            onClick={() => setShowMenu((v) => !v)}
+          
+            onClick={() => {setShowMenu((v) => !v); alert('Message options menu is under development.');}}
+           
             className={`absolute -top-1 ${
               mine ? '-left-7' : '-right-7'
             } w-6 h-6 rounded-full flex items-center justify-center text-ember-50/0 group-hover:text-ember-50/50 hover:!text-ember-50 hover:bg-void/60 transition-colors`}
