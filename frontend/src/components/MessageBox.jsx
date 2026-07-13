@@ -484,11 +484,14 @@ const openMenu = () => {
   }
 const lastTap = useRef(0);
 
-const handleDoubleTap = () => {
+const handleDoublDeskTap = (e) => {
+  // Sirf touch devices ke liye
+  if (e.pointerType !== "touch") return;
+
   const now = Date.now();
 
   if (now - lastTap.current < 300) {
-    setShowPicker(v => !v);
+    setShowPicker((v) => !v);
   }
 
   lastTap.current = now;
@@ -553,7 +556,8 @@ const handleDoubleTap = () => {
 )}
 
           <div
-   onPointerDown={handleDoubleTap}
+   onPointerDown={handleDoublDeskTap}
+   onDoubleClick={() => setShowPicker((v) => !v)}
             className={`px-3.5 py-2.5 sm:px-4 rounded-2xl text-[15px] sm:text-sm leading-relaxed shadow-sm ${
               mine
                 ? 'bg-ember-500 text-void-950 rounded-br-sm shadow-neon'
