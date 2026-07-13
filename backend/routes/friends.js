@@ -7,6 +7,25 @@ import { emitToUser } from '../socket/index.js';
 
 const router = Router();
 
+// The AI Assistant doesn't go through the friend-request flow, so features
+// that store per-conversation prefs on a Friendship doc (nickname,
+// auto-delete) need one to exist. Auto-create + auto-accept it silently the
+// first time the user touches one of those features with the bot.
+async function findOrCreateRelation(userId, otherUserId) {
+  let relation = await Friendship.findBetween(userId, otherUserId);
+  if (relation) return relation;
+
+  const otherUser = await User.findById(otherUserId).select('isBot');
+  if (!otherUser?.isBot) return null; // not the bot -> real friendship required, don't auto-create
+
+  relation = await Friendship.create({
+    requester: userId,
+    recipient: otherUserId,
+    status: 'accepted',
+  });
+  return relation;
+}
+
 // GET /api/friends/search?q=username -> find people to add, tagged with relationship status
 router.get('/search', requireAuth, async (req, res) => {
   try {
@@ -171,10 +190,12 @@ router.get('/', requireAuth, async (req, res) => {
       status: 'accepted',
       $or: [{ requester: req.userId }, { recipient: req.userId }],
     })
-      .populate('requester', 'username avatar lastSeen verified privacy')
-      .populate('recipient', 'username avatar lastSeen verified privacy');
+      .populate('requester', 'username avatar lastSeen verified privacy isBot')
+      .populate('recipient', 'username avatar lastSeen verified privacy isBot');
 
-    const friends = friendships.map((f) => {
+    const friends = friendships
+      .filter((f) => !f.requester.isBot && !f.recipient.isBot)
+      .map((f) => {
       const isRequester = String(f.requester._id) === String(req.userId);
       const other = isRequester ? f.recipient : f.requester;
       const nickname = f.nicknameFor(req.userId);
@@ -207,7 +228,7 @@ router.patch('/:friendUserId/nickname', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    const relation = await Friendship.findBetween(req.userId, friendUserId);
+    const relation = await findOrCreateRelation(req.userId, friendUserId);
     if (!relation || relation.status !== 'accepted') {
       return res.status(404).json({ message: 'You are not friends with this user' });
     }
@@ -229,7 +250,7 @@ router.patch('/:friendUserId/auto-delete', requireAuth, async (req, res) => {
   try {
     const { friendUserId } = req.params;
     const { seconds } = req.body;
-    const relation = await Friendship.findBetween(req.userId, friendUserId);
+    const relation = await findOrCreateRelation(req.userId, friendUserId);
     if (!relation || relation.status !== 'accepted') {
       return res.status(404).json({ message: 'You are not friends with this user' });
     }
