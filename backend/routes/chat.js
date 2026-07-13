@@ -7,10 +7,27 @@ import { requireAuth } from '../middleware/auth.js';
 import { uploadChatMedia } from '../middleware/upload.js';
 import { emitToUser } from '../socket/index.js';
 import User from '../models/User.js';
-
+import { decryptText } from '../utils/encryption.js';
 const router = Router();
 
 const DEFAULT_PAGE_SIZE = 30;
+function decryptMessage(msg) {
+  if (!msg) return msg;
+
+  const out = {
+    ...msg,
+    content: decryptText(msg.content),
+  };
+
+  if (out.replyTo && typeof out.replyTo === 'object') {
+    out.replyTo = {
+      ...out.replyTo,
+      content: decryptText(out.replyTo.content),
+    };
+  }
+
+  return out;
+}
 
 // A view-once photo the receiver has already opened must never be sent back
 // down to them again - strip the URL and just leave a marker they can render
@@ -79,12 +96,16 @@ if (!otherUser?.isBot) {
       .populate('replyTo', 'content type mediaUrl sender')
       .lean();
 
-    page.reverse(); // ...then flip to oldest-first for the UI
+   page.reverse();
 
-    res.json({
-      messages: maskDeletedForEveryone(maskViewOnce(page, req.userId)),
-      hasMore: page.length === limit,
-    });
+const decrypted = page.map(decryptMessage);
+
+res.json({
+  messages: maskDeletedForEveryone(
+    maskViewOnce(decrypted, req.userId)
+  ),
+  hasMore: page.length === limit,
+});
   } catch (err) {
     res.status(500).json({ message: 'Could not load messages' });
   }
@@ -126,10 +147,12 @@ router.get('/group/:groupId/messages', requireAuth, async (req, res) => {
 
     page.reverse();
 
-    res.json({
-      messages: maskDeletedForEveryone(page),
-      hasMore: page.length === limit,
-    });
+const decrypted = page.map(decryptMessage);
+
+res.json({
+  messages: maskDeletedForEveryone(decrypted),
+  hasMore: page.length === limit,
+});
   } catch (err) {
     res.status(500).json({ message: 'Could not load group messages' });
   }
@@ -163,7 +186,14 @@ router.get('/summaries', requireAuth, async (req, res) => {
         ]);
         return {
           friendId,
-          lastMessage: lastMessage ? maskDeletedForEveryone(maskViewOnce([lastMessage], req.userId))[0] : null,
+          lastMessage: lastMessage
+  ? maskDeletedForEveryone(
+      maskViewOnce(
+        [decryptMessage(lastMessage)],
+        req.userId
+      )
+    )[0]
+  : null,
           unreadCount,
         };
       })
@@ -207,7 +237,7 @@ router.get('/starred', requireAuth, async (req, res) => {
       .populate('receiver', 'username avatar')
       .populate('group', 'name avatar')
       .lean();
-    res.json(messages);
+   res.json(messages.map(decryptMessage));
   } catch (err) {
     res.status(500).json({ message: 'Could not load starred messages' });
   }
@@ -241,7 +271,7 @@ router.get('/search', requireAuth, async (req, res) => {
       .select('content type createdAt sender')
       .lean();
 
-    res.json(matches);
+    res.json(matches.map(decryptMessage));
   } catch (err) {
     res.status(500).json({ message: 'Could not search messages' });
   }
@@ -277,8 +307,11 @@ router.get('/messages/:otherUserId/around/:messageId', requireAuth, async (req, 
     ]);
 
     before.reverse();
-    const messages = maskDeletedForEveryone(maskViewOnce([...before, ...after], req.userId));
-    res.json({ messages, hasMore: before.length === 15 });
+ const decrypted = [...before, ...after].map(decryptMessage);
+
+const messages = maskDeletedForEveryone(
+  maskViewOnce(decrypted, req.userId)
+);    res.json({ messages, hasMore: before.length === 15 });
   } catch (err) {
     res.status(500).json({ message: 'Could not load message context' });
   }

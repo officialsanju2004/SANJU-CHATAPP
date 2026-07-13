@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { decryptText, encryptText } from '../utils/encryption.js';
 
 const reactionSchema = new mongoose.Schema(
   {
@@ -114,6 +115,27 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ conversationId: 1, createdAt: -1 });
+// Encrypt before save
+messageSchema.pre('save', function (next) {
+  if (this.isModified('content') && this.content) {
+    this.content = encryptText(this.content);
+  }
+  next();
+});
+
+// Decrypt after save
+messageSchema.post('save', function (doc) {
+  if (doc.content) {
+    doc.content = decryptText(doc.content);
+  }
+});
+
+// Decrypt on normal (non-lean) reads
+messageSchema.post('init', function (doc) {
+  if (doc.content) {
+    doc.content = decryptText(doc.content);
+  }
+});
 messageSchema.index({ content: 'text' });
 
 messageSchema.statics.conversationIdFor = function (userA, userB) {
