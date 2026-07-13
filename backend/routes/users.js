@@ -156,7 +156,7 @@ router.get('/ai-assistant', requireAuth, async (req, res) => {
       password: '123456',
       isBot: true,
       verified: true,
-      avatar: '/uploads/bot.jpeg',
+      avatar: 'https://res.cloudinary.com/dhcf8e2pq/image/upload/v1783947591/file_000000004ecc7208ac9efd009165f157_bcd6vq.png',
     });
   }
 
