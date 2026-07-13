@@ -362,15 +362,17 @@ function ReactionsBar({ reactions, mine }) {
   }, {});
 
   return (
-    <div className={`flex gap-1 -mt-1.5 mb-1 ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div className="flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-sm">
-        {Object.entries(counts).map(([emoji, count]) => (
-          <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
-            {emoji}
-            {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
-          </span>
-        ))}
-      </div>
+    <div
+      className={`absolute -bottom-3 z-30 flex gap-0.5 bg-surface border border-surface-border rounded-full px-1.5 py-0.5 shadow-md ${
+        mine ? 'right-2' : 'left-2'
+      }`}
+    >
+      {Object.entries(counts).map(([emoji, count]) => (
+        <span key={emoji} className="text-xs leading-none flex items-center gap-0.5">
+          {emoji}
+          {count > 1 && <span className="text-[10px] text-ember-50/50">{count}</span>}
+        </span>
+      ))}
     </div>
   );
 }
@@ -480,7 +482,17 @@ const openMenu = () => {
       </div>
     );
   }
+const lastTap = useRef(0);
 
+const handleDoubleTap = () => {
+  const now = Date.now();
+
+  if (now - lastTap.current < 300) {
+    setShowPicker(v => !v);
+  }
+
+  lastTap.current = now;
+};
   return (
     <SwipeToReply message={message} onReply={onReply}>
       {isGroup && !mine && (
@@ -541,7 +553,7 @@ const openMenu = () => {
 )}
 
           <div
-            onDoubleClick={() => setShowPicker((v) => !v)}
+   onPointerDown={handleDoubleTap}
             className={`px-3.5 py-2.5 sm:px-4 rounded-2xl text-[15px] sm:text-sm leading-relaxed shadow-sm ${
               mine
                 ? 'bg-ember-500 text-void-950 rounded-br-sm shadow-neon'
