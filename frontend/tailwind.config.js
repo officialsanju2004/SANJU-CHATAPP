@@ -4,43 +4,47 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Exact palette derived from the logo: black background, neon-orange glow
+        // ⚠️ CHANGED: these used to be hardcoded hex values. They're now
+        // CSS variables (set in index.css per data-theme) so the whole app
+        // can re-skin at runtime (Ember/Blue/Green/Purple/AMOLED) without a
+        // rebuild - every existing bg-ember-500 / text-ember-400 / etc class
+        // still works exactly the same, it just resolves a variable now.
         void: {
-          DEFAULT: '#050403',
-          50: '#0d0b09',
-          100: '#0a0806',
-          950: '#000000',
+          DEFAULT: 'rgb(var(--void) / <alpha-value>)',
+          50: 'rgb(var(--void-50) / <alpha-value>)',
+          100: 'rgb(var(--void-100) / <alpha-value>)',
+          950: 'rgb(var(--void-950) / <alpha-value>)',
         },
         surface: {
-          DEFAULT: '#121009',
-          light: '#1c1811',
-          border: '#2b2214',
+          DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
+          light: 'rgb(var(--surface-light) / <alpha-value>)',
+          border: 'rgb(var(--surface-border) / <alpha-value>)',
         },
         ember: {
-          50: '#fff4e0',
-          100: '#ffe4b3',
-          200: '#ffd280',
-          300: '#ffbe4d',
-          400: '#ffa726',
-          500: '#ff9500', // logo core orange
-          600: '#f27d00',
-          700: '#d96600',
-          800: '#a84f00',
-          900: '#7a3900',
+          50: 'rgb(var(--ember-50) / <alpha-value>)',
+          100: 'rgb(var(--ember-100) / <alpha-value>)',
+          200: 'rgb(var(--ember-200) / <alpha-value>)',
+          300: 'rgb(var(--ember-300) / <alpha-value>)',
+          400: 'rgb(var(--ember-400) / <alpha-value>)',
+          500: 'rgb(var(--ember-500) / <alpha-value>)',
+          600: 'rgb(var(--ember-600) / <alpha-value>)',
+          700: 'rgb(var(--ember-700) / <alpha-value>)',
+          800: 'rgb(var(--ember-800) / <alpha-value>)',
+          900: 'rgb(var(--ember-900) / <alpha-value>)',
         },
-        glow: '#ffb347',
+        glow: 'rgb(var(--glow) / <alpha-value>)',
       },
       fontFamily: {
         display: ['"Sora"', 'system-ui', 'sans-serif'],
         body: ['"Inter"', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        neon: '0 0 8px rgba(255,149,0,0.55), 0 0 24px rgba(255,149,0,0.25)',
-        'neon-lg': '0 0 16px rgba(255,149,0,0.6), 0 0 48px rgba(255,149,0,0.3)',
-        'neon-inset': 'inset 0 0 0 1px rgba(255,149,0,0.4)',
+        neon: '0 0 8px rgb(var(--ember-500) / 0.55), 0 0 24px rgb(var(--ember-500) / 0.25)',
+        'neon-lg': '0 0 16px rgb(var(--ember-500) / 0.6), 0 0 48px rgb(var(--ember-500) / 0.3)',
+        'neon-inset': 'inset 0 0 0 1px rgb(var(--ember-500) / 0.4)',
       },
       backgroundImage: {
-        'radial-fade': 'radial-gradient(circle at 50% 0%, rgba(255,149,0,0.12), transparent 60%)',
+        'radial-fade': 'radial-gradient(circle at 50% 0%, rgb(var(--ember-500) / 0.12), transparent 60%)',
       },
       keyframes: {
         pulseGlow: {

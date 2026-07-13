@@ -30,6 +30,9 @@ export default function CallModal() {
     endCall,
     toggleMute,
     toggleCamera,
+    isScreenSharing,
+    startScreenShare,
+    stopScreenShare,
     clearError,
   } = useCall();
 
@@ -162,6 +165,18 @@ export default function CallModal() {
                   ) : (
                     <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4Z" />
                   )}
+                </svg>
+              </CallButton>
+            )}
+
+            {isVideo && callState === 'connected' && (
+              <CallButton
+                onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+                title={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}
+                className={isScreenSharing ? 'bg-ember-500 text-void-950' : 'bg-surface border border-surface-border text-ember-50/70 hover:text-ember-50'}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
+                  <path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4ZM4 16V6h16l.002 10H4Z" />
                 </svg>
               </CallButton>
             )}

@@ -29,6 +29,15 @@ export function CallProvider({ children }) {
 
   const RING_TIMEOUT_MS = 45000;
 
+  // ✅ Noise cancellation: these are standard WebRTC constraints most browsers
+  // already default to true, but setting them explicitly makes sure calls
+  // always request them rather than silently falling back to raw mic audio.
+  const AUDIO_CONSTRAINTS = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+
   const clearRingTimeout = useCallback(() => {
     clearTimeout(ringTimeoutRef.current);
     ringTimeoutRef.current = null;
@@ -44,6 +53,8 @@ export function CallProvider({ children }) {
     pendingCandidatesRef.current = [];
     setMuted(false);
     setCameraOff(false);
+    setIsScreenSharing(false);
+    cameraTrackRef.current = null;
   }, [localStream]);
 
   const endCall = useCallback(
@@ -94,7 +105,7 @@ export function CallProvider({ children }) {
       setCallError('');
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: AUDIO_CONSTRAINTS,
           video: type === 'video',
         });
         setLocalStream(stream);
@@ -132,7 +143,7 @@ export function CallProvider({ children }) {
     setCallError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: AUDIO_CONSTRAINTS,
         video: pending.callType === 'video',
       });
       setLocalStream(stream);
@@ -182,6 +193,52 @@ export function CallProvider({ children }) {
     localStream.getVideoTracks().forEach((t) => (t.enabled = !next));
     setCameraOff(next);
   }, [localStream, cameraOff]);
+
+  // ---- Screen sharing: swaps the outgoing video track for a screen-capture
+  // track via RTCRtpSender.replaceTrack (no renegotiation needed for a same-
+  // kind track swap in modern browsers), then swaps back to the camera when
+  // stopped or when the browser's own "Stop sharing" control is used.
+  const cameraTrackRef = useRef(null);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+
+  const startScreenShare = useCallback(async () => {
+    if (!pcRef.current || callState !== 'connected') return;
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+
+      const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+      cameraTrackRef.current = sender?.track || localStream?.getVideoTracks()[0] || null;
+      await sender?.replaceTrack(screenTrack);
+
+      // Show the shared screen in the local preview too
+      setLocalStream((prev) => {
+        if (!prev) return prev;
+        const next = new MediaStream([...prev.getAudioTracks(), screenTrack]);
+        return next;
+      });
+
+      setIsScreenSharing(true);
+      screenTrack.onended = () => stopScreenShare();
+    } catch (err) {
+      // user cancelled the picker - nothing to do
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callState, localStream]);
+
+  const stopScreenShare = useCallback(async () => {
+    if (!pcRef.current || !cameraTrackRef.current) return;
+    const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
+    await sender?.replaceTrack(cameraTrackRef.current);
+
+    setLocalStream((prev) => {
+      if (!prev) return prev;
+      return new MediaStream([...prev.getAudioTracks(), cameraTrackRef.current]);
+    });
+
+    setIsScreenSharing(false);
+    cameraTrackRef.current = null;
+  }, []);
 
   // ---- Socket listeners for the signaling events from backend/socket/index.js ----
   useEffect(() => {
@@ -290,6 +347,9 @@ export function CallProvider({ children }) {
         endCall,
         toggleMute,
         toggleCamera,
+        isScreenSharing,
+        startScreenShare,
+        stopScreenShare,
         setPeerUser,
         clearError: () => setCallError(''),
       }}

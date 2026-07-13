@@ -1,4 +1,16 @@
-export default function MessageOptionsMenu({ mine, isText, isDeleted, onReply, onCopy, onEdit, onUnsend, onClose }) {
+export default function MessageOptionsMenu({
+  mine,
+  isText,
+  isDeleted,
+  isStarred,
+  onReply,
+  onCopy,
+  onEdit,
+  onUnsend,
+  onStar,
+  onRemind,
+  onClose,
+}) {
   const item = (label, onClick, danger) => (
     <button
       onClick={() => {
@@ -17,12 +29,14 @@ export default function MessageOptionsMenu({ mine, isText, isDeleted, onReply, o
     <>
       <div className="fixed inset-0 z-30" onClick={onClose} />
       <div
-        className={`absolute top-6 z-40 w-40 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden ${
+        className={`absolute top-6 z-40 w-44 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden ${
           mine ? 'right-0' : 'left-0'
         }`}
       >
         {item('Reply', onReply)}
         {isText && !isDeleted && item('Copy', onCopy)}
+        {!isDeleted && item(isStarred ? 'Unstar ⭐' : 'Star ⭐', onStar)}
+        {!isDeleted && item('Remind me…', onRemind)}
         {mine && isText && !isDeleted && item('Edit', onEdit)}
         {mine && !isDeleted && item('Unsend', onUnsend, true)}
       </div>

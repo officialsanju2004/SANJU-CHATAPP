@@ -16,6 +16,9 @@ export default function ChatHeader({
   onToggleBlock,
   onOpenGroupInfo,
   onRenameContact,
+  onToggleSearch,
+  onOpenWallpaper,
+  onOpenAutoDelete,
 }) {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -86,6 +89,16 @@ export default function ChatHeader({
           </>
         )}
 
+        <button
+          onClick={onToggleSearch}
+          className="w-9 h-9 flex items-center justify-center text-ember-50/60 hover:text-ember-400 hover:bg-void/60 rounded-full transition-colors"
+          title="Search in this chat"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" className="fill-current">
+            <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14Z" />
+          </svg>
+        </button>
+
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
@@ -135,6 +148,24 @@ export default function ChatHeader({
                     </button>
                   </>
                 )}
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenWallpaper?.();
+                  }}
+                  className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+                >
+                  Chat wallpaper
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onOpenAutoDelete?.();
+                  }}
+                  className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+                >
+                  Auto-delete messages
+                </button>
                 <button
                   onClick={() => {
                     setShowMenu(false);

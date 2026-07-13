@@ -6,6 +6,12 @@ import { linkify } from '../utils/linkify.js';
 import EmojiReactionPicker from './EmojiReactionPicker.jsx';
 import MessageOptionsMenu from './MessageOptionsMenu.jsx';
 import VerifiedBadge from './VerifiedBadge.jsx';
+import PollBubble from './PollBubble.jsx';
+import LocationBubble from './LocationBubble.jsx';
+import ReminderModal from './ReminderModal.jsx';
+import PollComposerModal from './PollComposerModal.jsx';
+import LocationShareModal from './LocationShareModal.jsx';
+import ScheduleMessageModal from './ScheduleMessageModal.jsx';
 
 // Two overlapping checkmarks, WhatsApp-style. Gray = sent, blue = seen.
 function Ticks({ seen }) {
@@ -400,12 +406,18 @@ function MessageBubble({
   onUnsend,
   isGroup,
   memberCount,
+  onVotePoll,
+  onToggleStar,
+  isHighlighted,
+  bubbleRef,
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [viewOnceOverlay, setViewOnceOverlay] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.content);
+  const [showReminder, setShowReminder] = useState(false);
+  const isStarred = message.starredBy?.some((id) => id === currentUserId || id?._id === currentUserId);
 
   const handleOpenViewOnce = async (msg) => {
     const result = await onOpenViewOnce(msg);
@@ -439,7 +451,12 @@ function MessageBubble({
           {message.sender?.verified && <VerifiedBadge size={11} />}
         </p>
       )}
-      <div className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn`}>
+      <div
+        ref={bubbleRef}
+        className={`flex ${mine ? 'justify-end' : 'justify-start'} animate-floatIn rounded-xl transition-shadow ${
+          isHighlighted ? 'shadow-neon-lg ring-2 ring-ember-400' : ''
+        }`}
+      >
         <div className="relative max-w-[82%] sm:max-w-[70%] group">
           {showPicker && (
             <>
@@ -470,10 +487,13 @@ function MessageBubble({
               mine={mine}
               isText={message.type === 'text'}
               isDeleted={message.deletedForEveryone}
+              isStarred={isStarred}
               onReply={() => onReply(message)}
               onCopy={() => navigator.clipboard?.writeText(message.content)}
               onEdit={() => setIsEditing(true)}
               onUnsend={() => onUnsend(message._id)}
+              onStar={() => onToggleStar(message._id)}
+              onRemind={() => setShowReminder(true)}
               onClose={() => setShowMenu(false)}
             />
           )}
@@ -505,6 +525,10 @@ function MessageBubble({
             {message.type === 'voice' && message.mediaUrl && (
               <VoiceBubble src={mediaUrl(message.mediaUrl)} duration={message.duration} mine={mine} />
             )}
+            {message.type === 'poll' && (
+              <PollBubble message={message} mine={mine} currentUserId={currentUserId} onVote={onVotePoll} />
+            )}
+            {message.type === 'location' && <LocationBubble location={message.location} />}
             {message.type === 'text' && !isEditing && <LinkifiedText text={message.content} mine={mine} />}
             {message.type === 'text' && isEditing && (
               <div className="min-w-[200px]">
@@ -534,6 +558,11 @@ function MessageBubble({
               }`}
             >
               {message.editedAt && <span className="italic opacity-70">edited</span>}
+              {isStarred && (
+                <svg viewBox="0 0 24 24" width="10" height="10" className="fill-current opacity-80">
+                  <path d="M12 2 9.2 8.6 2 9.2l5.5 4.7L5.8 21 12 17.3 18.2 21l-1.7-7.1L22 9.2l-7.2-.6Z" />
+                </svg>
+              )}
               <span>{formatMessageTime(message.createdAt)}</span>
               {mine && !isGroup && <Ticks seen={!!message.seen} />}
               {mine && isGroup && memberCount > 1 && (
@@ -552,6 +581,7 @@ function MessageBubble({
       {viewOnceOverlay && (
         <ViewOnceOverlay url={viewOnceOverlay} onClose={() => setViewOnceOverlay(null)} />
       )}
+      {showReminder && <ReminderModal message={message} onClose={() => setShowReminder(false)} />}
     </SwipeToReply>
   );
 }
@@ -581,11 +611,16 @@ export function MessageList({
   onUnsend,
   isGroup,
   memberCount,
+  onVotePoll,
+  onToggleStar,
+  wallpaper,
+  highlightMessageId,
 }) {
   const containerRef = useRef(null);
   const bottomRef = useRef(null);
   const prevFirstIdRef = useRef(null);
   const prevScrollHeightRef = useRef(0);
+  const bubbleRefs = useRef(new Map());
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -596,11 +631,19 @@ export function MessageList({
 
     if (isPagination) {
       container.scrollTop = container.scrollHeight - prevScrollHeightRef.current;
-    } else {
+    } else if (!highlightMessageId) {
       bottomRef.current?.scrollIntoView({ behavior: prevFirstIdRef.current ? 'smooth' : 'auto' });
     }
     prevFirstIdRef.current = firstId || null;
-  }, [messages]);
+  }, [messages, highlightMessageId]);
+
+  // Jump-to-message: scroll a specific bubble into view when asked to
+  // (e.g. clicking a search result or a starred message)
+  useEffect(() => {
+    if (!highlightMessageId) return;
+    const node = bubbleRefs.current.get(highlightMessageId);
+    node?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightMessageId]);
 
   const handleScroll = () => {
     const el = containerRef.current;
@@ -623,10 +666,17 @@ export function MessageList({
     return null;
   }, [messages, currentUserId]);
 
+  const wallpaperStyle = !wallpaper
+    ? undefined
+    : wallpaper.type === 'image'
+    ? { backgroundImage: `url(${wallpaper.value})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : { background: wallpaper.value };
+
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
+      style={wallpaperStyle}
       className="flex-1 overflow-y-auto scrollbar-ember px-3 sm:px-6 py-4 sm:py-5 space-y-2.5 sm:space-y-3"
     >
       {loadingMore && (
@@ -656,6 +706,13 @@ export function MessageList({
               onUnsend={onUnsend}
               isGroup={isGroup}
               memberCount={memberCount}
+              onVotePoll={onVotePoll}
+              onToggleStar={onToggleStar}
+              isHighlighted={m._id === highlightMessageId}
+              bubbleRef={(node) => {
+                if (node) bubbleRefs.current.set(m._id, node);
+                else bubbleRefs.current.delete(m._id);
+              }}
             />
           </div>
         );
@@ -705,19 +762,41 @@ function ReplyBar({ replyingTo, onCancel, currentUserId, friendUsername }) {
 export function MessageComposer({
   onSendText,
   onSendMedia,
+  onSendPoll,
+  onSendLocation,
   onTyping,
   disabled,
   replyingTo,
   onCancelReply,
   currentUserId,
   friendUsername,
+  conversationKey,
+  scheduleTarget,
 }) {
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [viewOnceArmed, setViewOnceArmed] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
+  const [showLocationShare, setShowLocationShare] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
   const fileInputRef = useRef(null);
   const { recording, seconds, start, stop, cancel } = useVoiceRecorder();
+
+  // ✅ Draft messages: restore whatever was half-typed for this conversation,
+  // and keep saving as the user types so switching chats never loses it.
+  useEffect(() => {
+    if (!conversationKey) return;
+    const draft = localStorage.getItem(`draft:${conversationKey}`);
+    setText(draft || '');
+  }, [conversationKey]);
+
+  useEffect(() => {
+    if (!conversationKey) return;
+    if (text) localStorage.setItem(`draft:${conversationKey}`, text);
+    else localStorage.removeItem(`draft:${conversationKey}`);
+  }, [text, conversationKey]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -783,6 +862,20 @@ export function MessageComposer({
           {error}
         </div>
       )}
+      {showPollComposer && (
+        <PollComposerModal onClose={() => setShowPollComposer(false)} onSend={onSendPoll} />
+      )}
+      {showLocationShare && (
+        <LocationShareModal onClose={() => setShowLocationShare(false)} onShare={onSendLocation} />
+      )}
+      {showScheduler && text.trim() && (
+        <ScheduleMessageModal
+          text={text.trim()}
+          target={scheduleTarget}
+          onClose={() => setShowScheduler(false)}
+          onScheduled={() => setText('')}
+        />
+      )}
       <ReplyBar
         replyingTo={replyingTo}
         onCancel={onCancelReply}
@@ -822,6 +915,59 @@ export function MessageComposer({
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 sm:py-4">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              disabled={disabled || uploading}
+              onClick={() => setShowAttachMenu((v) => !v)}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-ember-50/50 hover:text-ember-400 hover:bg-void/60 disabled:opacity-40 transition-colors"
+              aria-label="More attachments"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
+                <path d="M11 5h2v14h-2z" />
+                <path d="M5 11h14v2H5z" />
+              </svg>
+            </button>
+            {showAttachMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />
+                <div className="absolute bottom-12 left-0 z-40 w-44 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAttachMenu(false);
+                      setShowPollComposer(true);
+                    }}
+                    className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5"
+                  >
+                    📊 Poll
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAttachMenu(false);
+                      setShowLocationShare(true);
+                    }}
+                    className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+                  >
+                    📍 Location
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!text.trim()}
+                    onClick={() => {
+                      setShowAttachMenu(false);
+                      setShowScheduler(true);
+                    }}
+                    className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border disabled:opacity-40"
+                  >
+                    ⏰ Schedule this message
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           <input
             ref={fileInputRef}
             type="file"

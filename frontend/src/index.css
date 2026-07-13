@@ -2,13 +2,125 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ✅ Theme system: each [data-theme="..."] block redefines the same set of
+   CSS variables (as "R G B" triplets so Tailwind's <alpha-value> opacity
+   modifiers keep working, e.g. bg-ember-500/30). Switching themes is just
+   setting data-theme on <html> - see context/ThemeContext.jsx. */
+:root,
+[data-theme='ember'] {
+  --void: 5 4 3;
+  --void-50: 13 11 9;
+  --void-100: 10 8 6;
+  --void-950: 0 0 0;
+  --surface: 18 16 9;
+  --surface-light: 28 24 17;
+  --surface-border: 43 34 20;
+  --ember-50: 255 244 224;
+  --ember-100: 255 228 179;
+  --ember-200: 255 210 128;
+  --ember-300: 255 190 77;
+  --ember-400: 255 167 38;
+  --ember-500: 255 149 0;
+  --ember-600: 242 125 0;
+  --ember-700: 217 102 0;
+  --ember-800: 168 79 0;
+  --ember-900: 122 57 0;
+  --glow: 255 179 71;
+}
+
+[data-theme='blue'] {
+  --void: 4 6 12;
+  --void-50: 9 13 22;
+  --void-100: 7 10 18;
+  --void-950: 0 0 0;
+  --surface: 10 15 26;
+  --surface-light: 16 23 38;
+  --surface-border: 24 35 56;
+  --ember-50: 234 242 255;
+  --ember-100: 207 226 255;
+  --ember-200: 166 203 255;
+  --ember-300: 125 179 255;
+  --ember-400: 79 151 250;
+  --ember-500: 59 130 246;
+  --ember-600: 47 107 209;
+  --ember-700: 37 85 171;
+  --ember-800: 28 64 132;
+  --ember-900: 20 44 92;
+  --glow: 125 179 255;
+}
+
+[data-theme='green'] {
+  --void: 3 8 6;
+  --void-50: 8 16 12;
+  --void-100: 6 13 10;
+  --void-950: 0 0 0;
+  --surface: 9 20 15;
+  --surface-light: 15 30 22;
+  --surface-border: 22 43 32;
+  --ember-50: 232 251 240;
+  --ember-100: 195 243 215;
+  --ember-200: 146 230 179;
+  --ember-300: 95 216 144;
+  --ember-400: 52 201 115;
+  --ember-500: 34 197 94;
+  --ember-600: 26 163 77;
+  --ember-700: 20 129 61;
+  --ember-800: 15 96 45;
+  --ember-900: 10 64 30;
+  --glow: 95 216 144;
+}
+
+[data-theme='purple'] {
+  --void: 8 4 12;
+  --void-50: 16 9 22;
+  --void-100: 13 7 18;
+  --void-950: 0 0 0;
+  --surface: 20 10 26;
+  --surface-light: 30 16 38;
+  --surface-border: 43 24 56;
+  --ember-50: 246 236 255;
+  --ember-100: 231 205 254;
+  --ember-200: 211 164 253;
+  --ember-300: 189 123 251;
+  --ember-400: 171 92 249;
+  --ember-500: 168 85 247;
+  --ember-600: 139 63 214;
+  --ember-700: 110 47 171;
+  --ember-800: 84 35 129;
+  --ember-900: 58 24 87;
+  --glow: 189 123 251;
+}
+
+[data-theme='amoled'] {
+  /* Pure/near-pure black everywhere for real OLED power savings - accent
+     stays the familiar ember orange since only the background changes. */
+  --void: 0 0 0;
+  --void-50: 5 5 5;
+  --void-100: 3 3 3;
+  --void-950: 0 0 0;
+  --surface: 0 0 0;
+  --surface-light: 13 13 13;
+  --surface-border: 26 26 26;
+  --ember-50: 255 244 224;
+  --ember-100: 255 228 179;
+  --ember-200: 255 210 128;
+  --ember-300: 255 190 77;
+  --ember-400: 255 167 38;
+  --ember-500: 255 149 0;
+  --ember-600: 242 125 0;
+  --ember-700: 217 102 0;
+  --ember-800: 168 79 0;
+  --ember-900: 122 57 0;
+  --glow: 255 179 71;
+}
+
 @layer base {
   html, body, #root {
     height: 100%;
   }
   body {
     @apply bg-void text-ember-50 font-body antialiased;
-    background-image: radial-gradient(circle at 50% 0%, rgba(255, 149, 0, 0.10), transparent 55%);
+    background-image: radial-gradient(circle at 50% 0%, rgb(var(--ember-500) / 0.10), transparent 55%);
     background-attachment: fixed;
   }
   ::selection {

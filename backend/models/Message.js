@@ -16,6 +16,34 @@ const seenBySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const pollOptionSchema = new mongoose.Schema(
+  {
+    text: { type: String, required: true, trim: true, maxlength: 100 },
+    votes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  },
+  { _id: false }
+);
+
+const pollSchema = new mongoose.Schema(
+  {
+    question: { type: String, required: true, trim: true, maxlength: 200 },
+    options: [pollOptionSchema],
+    allowMultiple: { type: Boolean, default: false },
+    closedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const locationSchema = new mongoose.Schema(
+  {
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    live: { type: Boolean, default: false },
+    expiresAt: { type: Date, default: null }, // set when live: true
+  },
+  { _id: false }
+);
+
 const statusReplySchema = new mongoose.Schema(
   {
     statusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Status', required: true },
@@ -42,12 +70,18 @@ const messageSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'voice'],
+      enum: ['text', 'image', 'video', 'voice', 'poll', 'location'],
       default: 'text',
     },
     content: { type: String, trim: true, maxlength: 2000, default: '' },
     mediaUrl: { type: String, default: '' },
     duration: { type: Number, default: 0 },
+    poll: { type: pollSchema, default: null },
+    location: { type: locationSchema, default: null },
+
+    // ✅ Star/favourite - per-user, like WhatsApp (each person stars their
+    // own copy of the conversation, not shared with the other side).
+    starredBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
     // ✅ Read receipts - 1:1 uses the simple boolean; group messages use
     // seenBy (one entry per member who's viewed it) instead.
@@ -80,6 +114,7 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ conversationId: 1, createdAt: -1 });
+messageSchema.index({ content: 'text' });
 
 messageSchema.statics.conversationIdFor = function (userA, userB) {
   return [String(userA), String(userB)].sort().join('_');

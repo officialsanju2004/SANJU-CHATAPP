@@ -15,6 +15,7 @@ router.get('/search', requireAuth, async (req, res) => {
 
     const users = await User.find({
       _id: { $ne: req.userId },
+      isBot: { $ne: true },
       username: { $regex: q, $options: 'i' },
     })
       .select('username avatar lastSeen verified')
@@ -170,20 +171,22 @@ router.get('/', requireAuth, async (req, res) => {
       status: 'accepted',
       $or: [{ requester: req.userId }, { recipient: req.userId }],
     })
-      .populate('requester', 'username avatar lastSeen verified')
-      .populate('recipient', 'username avatar lastSeen verified');
+      .populate('requester', 'username avatar lastSeen verified privacy')
+      .populate('recipient', 'username avatar lastSeen verified privacy');
 
     const friends = friendships.map((f) => {
       const isRequester = String(f.requester._id) === String(req.userId);
       const other = isRequester ? f.recipient : f.requester;
       const nickname = f.nicknameFor(req.userId);
+      const lastSeenVisible = other.isLastSeenVisibleTo(req.userId);
       return {
         _id: other._id,
         username: other.username,
         avatar: other.avatar,
-        lastSeen: other.lastSeen,
+        lastSeen: lastSeenVisible ? other.lastSeen : null,
         verified: other.verified,
         nickname: nickname || '',
+        autoDeleteSeconds: f.autoDeleteSeconds || 0,
       };
     });
 
@@ -218,6 +221,23 @@ router.patch('/:friendUserId/nickname', requireAuth, async (req, res) => {
     res.json({ nickname: trimmed });
   } catch (err) {
     res.status(500).json({ message: 'Could not update nickname' });
+  }
+});
+
+// PATCH /api/friends/:friendUserId/auto-delete { seconds } -> 0 = off
+router.patch('/:friendUserId/auto-delete', requireAuth, async (req, res) => {
+  try {
+    const { friendUserId } = req.params;
+    const { seconds } = req.body;
+    const relation = await Friendship.findBetween(req.userId, friendUserId);
+    if (!relation || relation.status !== 'accepted') {
+      return res.status(404).json({ message: 'You are not friends with this user' });
+    }
+    relation.autoDeleteSeconds = Math.max(0, parseInt(seconds, 10) || 0);
+    await relation.save();
+    res.json({ autoDeleteSeconds: relation.autoDeleteSeconds });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update auto-delete setting' });
   }
 });
 

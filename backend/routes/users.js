@@ -90,4 +90,82 @@ router.delete('/:userId/verify', requireAuth, requireVerifier, async (req, res) 
   res.json({ username: target.username, verified: false });
 });
 
+// ---- Online status & last-seen privacy ----
+
+// GET /api/users/privacy/visibility
+router.get('/privacy/visibility', requireAuth, async (req, res) => {
+  const user = await User.findById(req.userId).select('privacy');
+  res.json({
+    hideOnlineStatus: !!user?.privacy?.hideOnlineStatus,
+    onlineVisibleTo: user?.privacy?.onlineVisibleTo || [],
+    lastSeenVisibility: user?.privacy?.lastSeenVisibility || 'everyone',
+    lastSeenVisibleTo: user?.privacy?.lastSeenVisibleTo || [],
+  });
+});
+
+// PATCH /api/users/privacy/visibility { hideOnlineStatus, onlineVisibleTo, lastSeenVisibility, lastSeenVisibleTo }
+router.patch('/privacy/visibility', requireAuth, async (req, res) => {
+  const { hideOnlineStatus, onlineVisibleTo, lastSeenVisibility, lastSeenVisibleTo } = req.body;
+  const update = {};
+  if (typeof hideOnlineStatus === 'boolean') update['privacy.hideOnlineStatus'] = hideOnlineStatus;
+  if (Array.isArray(onlineVisibleTo)) update['privacy.onlineVisibleTo'] = onlineVisibleTo;
+  if (['everyone', 'nobody', 'selected'].includes(lastSeenVisibility)) {
+    update['privacy.lastSeenVisibility'] = lastSeenVisibility;
+  }
+  if (Array.isArray(lastSeenVisibleTo)) update['privacy.lastSeenVisibleTo'] = lastSeenVisibleTo;
+
+  await User.findByIdAndUpdate(req.userId, update);
+  res.json({ ok: true });
+});
+
+// ---- Pinned chats ----
+
+// PATCH /api/users/pins { conversationKey } -> toggle pin ("dm-<id>" or "group-<id>")
+router.patch('/pins', requireAuth, async (req, res) => {
+  const { conversationKey } = req.body;
+  if (!conversationKey) return res.status(400).json({ message: 'conversationKey required' });
+
+  const user = await User.findById(req.userId).select('pinnedChats');
+  const isPinned = user.pinnedChats.includes(conversationKey);
+  if (isPinned) {
+    user.pinnedChats = user.pinnedChats.filter((k) => k !== conversationKey);
+  } else {
+    user.pinnedChats.unshift(conversationKey);
+  }
+  await user.save();
+  res.json({ pinnedChats: user.pinnedChats });
+});
+
+// ---- Theme ----
+
+// PATCH /api/users/theme { theme }
+router.patch('/theme', requireAuth, async (req, res) => {
+  const allowed = ['ember', 'blue', 'green', 'purple', 'amoled'];
+  if (!allowed.includes(req.body.theme)) return res.status(400).json({ message: 'Invalid theme' });
+  await User.findByIdAndUpdate(req.userId, { theme: req.body.theme });
+  res.json({ theme: req.body.theme });
+});
+
+// GET /api/users/ai-assistant -> the built-in AI Assistant's public profile
+router.get('/ai-assistant', requireAuth, async (req, res) => {
+  let bot = await User.findOne({ isBot: true });
+
+  if (!bot) {
+    bot = await User.create({
+      username: 'AI Assistant',
+      password: '123456',
+      isBot: true,
+      verified: true,
+    });
+  }
+
+  res.json({
+    _id: bot._id,
+    username: bot.username,
+    avatar: bot.avatar,
+    verified: bot.verified,
+    isBot: true,
+  });
+});
+
 export default router;

@@ -42,11 +42,33 @@ const userSchema = new mongoose.Schema(
     // group creation/add-member requests silently skip them.
     privacy: {
       blockGroupAdd: { type: Boolean, default: false },
+
+      // Online status: hide the green/online indicator from everyone except
+      // the people listed in onlineVisibleTo.
+      hideOnlineStatus: { type: Boolean, default: false },
+      onlineVisibleTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+
+      // Last seen: 'everyone' (default), 'nobody', or 'selected' (only the
+      // people in lastSeenVisibleTo see the real timestamp - everyone else
+      // just sees nothing).
+      lastSeenVisibility: { type: String, enum: ['everyone', 'nobody', 'selected'], default: 'everyone' },
+      lastSeenVisibleTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     },
+
+    // ✅ Pinned chats: conversation keys like "dm-<userId>" or "group-<groupId>",
+    // most-recently-pinned first so the UI can keep pin order stable.
+    pinnedChats: [{ type: String }],
+
+    // ✅ Theme preference (Blue/Green/Purple/AMOLED Black/default ember)
+    theme: { type: String, enum: ['ember', 'blue', 'green', 'purple', 'amoled'], default: 'ember' },
 
     // ✅ Verified badge (orange tick). Only the @sanju account is allowed to
     // grant/revoke this - enforced in routes/users.js, not here.
     verified: { type: Boolean, default: false },
+
+    // ✅ Marks the reserved "AI Assistant" pseudo-account - messaging it
+    // skips the normal friendship requirement and triggers an AI reply.
+    isBot: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -67,6 +89,20 @@ userSchema.methods.comparePin = function (candidate) {
   return bcrypt.compare(candidate, this.chatLock.pinHash);
 };
 
+// Is my online status visible to this particular viewer?
+userSchema.methods.isOnlineVisibleTo = function (viewerId) {
+  if (!this.privacy?.hideOnlineStatus) return true;
+  return (this.privacy.onlineVisibleTo || []).some((id) => String(id) === String(viewerId));
+};
+
+// Is my last-seen timestamp visible to this particular viewer?
+userSchema.methods.isLastSeenVisibleTo = function (viewerId) {
+  const vis = this.privacy?.lastSeenVisibility || 'everyone';
+  if (vis === 'everyone') return true;
+  if (vis === 'nobody') return false;
+  return (this.privacy.lastSeenVisibleTo || []).some((id) => String(id) === String(viewerId));
+};
+
 userSchema.methods.toSafeObject = function () {
   return {
     id: this._id,
@@ -75,6 +111,8 @@ userSchema.methods.toSafeObject = function () {
     chatLockEnabled: !!this.chatLock?.enabled,
     blockGroupAdd: !!this.privacy?.blockGroupAdd,
     verified: !!this.verified,
+    theme: this.theme || 'ember',
+    pinnedChats: this.pinnedChats || [],
   };
 };
 

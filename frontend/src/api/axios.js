@@ -21,6 +21,7 @@ export const friendsApi = {
   decline: (id) => api.post(`/friends/requests/${id}/decline`),
   list: () => api.get('/friends'),
   setNickname: (friendUserId, nickname) => api.patch(`/friends/${friendUserId}/nickname`, { nickname }),
+  setAutoDelete: (friendUserId, seconds) => api.patch(`/friends/${friendUserId}/auto-delete`, { seconds }),
 };
 
 export const chatApi = {
@@ -43,6 +44,10 @@ export const chatApi = {
   summaries: () => api.get('/chat/summaries'),
   // The one-time reveal call for a view-once photo
   openViewOnce: (messageId) => api.post(`/chat/messages/${messageId}/view-once/open`),
+  toggleStar: (messageId) => api.post(`/chat/messages/${messageId}/star`),
+  starred: () => api.get('/chat/starred'),
+  search: (conversation, q) => api.get('/chat/search', { params: { conversation, q } }),
+  messagesAround: (otherUserId, messageId) => api.get(`/chat/messages/${otherUserId}/around/${messageId}`),
 };
 
 export const pushApi = {
@@ -86,6 +91,7 @@ export const groupsApi = {
   addMember: (groupId, userId) => api.post(`/groups/${groupId}/members`, { userId }),
   removeMember: (groupId, userId) => api.delete(`/groups/${groupId}/members/${userId}`),
   rename: (groupId, name) => api.patch(`/groups/${groupId}`, { name }),
+  setAutoDelete: (groupId, seconds) => api.patch(`/groups/${groupId}/auto-delete`, { seconds }),
 };
 
 // ✅ Privacy settings
@@ -130,6 +136,41 @@ export const verifyApi = {
 // ✅ Account deletion (separate from sign out)
 export const accountApi = {
   deleteAccount: (password) => api.delete('/account/me', { data: { password } }),
+};
+
+// ✅ Scheduled messages
+export const scheduledApi = {
+  create: (payload) => api.post('/scheduled', payload),
+  list: () => api.get('/scheduled'),
+  cancel: (id) => api.delete(`/scheduled/${id}`),
+};
+
+// ✅ Reminders
+export const remindersApi = {
+  create: (messageId, remindAt, note) => api.post('/reminders', { messageId, remindAt, note }),
+  list: () => api.get('/reminders'),
+  cancel: (id) => api.delete(`/reminders/${id}`),
+};
+
+// ✅ AI Assistant
+export const aiApi = {
+  get: () => api.get('/users/ai-assistant'),
+};
+
+// ✅ Online/last-seen visibility privacy
+export const visibilityApi = {
+  get: () => api.get('/users/privacy/visibility'),
+  update: (payload) => api.patch('/users/privacy/visibility', payload),
+};
+
+// ✅ Pinned chats
+export const pinApi = {
+  toggle: (conversationKey) => api.patch('/users/pins', { conversationKey }),
+};
+
+// ✅ Theme
+export const themeApi = {
+  set: (theme) => api.patch('/users/theme', { theme }),
 };
 
 // Resolve a relative /uploads/... path from the API into an absolute URL.

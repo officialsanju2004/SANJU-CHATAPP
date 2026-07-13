@@ -9,6 +9,13 @@ import BlockedUsersModal from './BlockedUsersModal.jsx';
 import CreateGroupModal from './CreateGroupModal.jsx';
 import VerifiedBadge from './VerifiedBadge.jsx';
 import VerifyUsersModal from './VerifyUsersModal.jsx';
+import GlobalSearchModal from './GlobalSearchModal.jsx';
+import StarredMessagesModal from './StarredMessagesModal.jsx';
+import ScheduledMessagesList from './ScheduledMessagesList.jsx';
+import ThemeSwitcher from './ThemeSwitcher.jsx';
+import PrivacyVisibilityModal from './PrivacyVisibilityModal.jsx';
+import QRCodeModal from './QRCodeModal.jsx';
+import QRScannerModal from './QRScannerModal.jsx';
 
 export default function Sidebar({
   tab,
@@ -31,6 +38,10 @@ export default function Sidebar({
   onGroupCreated,
   privacyBlockGroupAdd,
   onTogglePrivacy,
+  onOpenChat,
+  onSendRequest,
+  onJumpToMessage,
+  onTogglePin,
 }) {
   const { user, logout } = useAuth();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
@@ -40,6 +51,13 @@ export default function Sidebar({
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showVerifyUsers, setShowVerifyUsers] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [showStarred, setShowStarred] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
+  const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
+  const [showPrivacyVisibility, setShowPrivacyVisibility] = useState(false);
+  const [showMyQR, setShowMyQR] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const isSanju = user?.username?.toLowerCase() === 'sanju';
 
@@ -62,8 +80,19 @@ export default function Sidebar({
         </div>
 
         <button
-          onClick={() => setShowCreateGroup(true)}
+          onClick={() => setShowGlobalSearch(true)}
           className="ml-auto text-ember-50/40 hover:text-ember-400 transition-colors p-1.5"
+          aria-label="Search"
+          title="Search"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" className="fill-current">
+            <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14Z" />
+          </svg>
+        </button>
+
+        <button
+          onClick={() => setShowCreateGroup(true)}
+          className="text-ember-50/40 hover:text-ember-400 transition-colors p-1.5"
           aria-label="New group"
           title="New group"
         >
@@ -94,6 +123,60 @@ export default function Sidebar({
                 className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5"
               >
                 {lockEnabled ? 'Chat lock settings' : 'Enable chat lock'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowStarred(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                ⭐ Starred messages
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowScheduled(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                ⏰ Scheduled messages
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowThemeSwitcher(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                🎨 Theme
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowPrivacyVisibility(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                Online status & last seen
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowMyQR(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                My QR code
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowQRScanner(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                Scan QR code
               </button>
               <button
                 onClick={() => {
@@ -183,6 +266,38 @@ export default function Sidebar({
       )}
       {showDeleteAccount && <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />}
       {showBlockedUsers && <BlockedUsersModal onClose={() => setShowBlockedUsers(false)} />}
+      {showGlobalSearch && (
+        <GlobalSearchModal
+          onClose={() => setShowGlobalSearch(false)}
+          onOpenChat={onOpenChat}
+          onSendRequest={onSendRequest}
+        />
+      )}
+      {showStarred && (
+        <StarredMessagesModal
+          onClose={() => setShowStarred(false)}
+          currentUserId={user?.id}
+          onJump={onJumpToMessage}
+        />
+      )}
+      {showScheduled && <ScheduledMessagesList onClose={() => setShowScheduled(false)} />}
+      {showThemeSwitcher && <ThemeSwitcher onClose={() => setShowThemeSwitcher(false)} />}
+      {showPrivacyVisibility && (
+        <PrivacyVisibilityModal
+          friends={friendsForGroupCreation}
+          onClose={() => setShowPrivacyVisibility(false)}
+        />
+      )}
+      {showMyQR && <QRCodeModal username={user?.username} onClose={() => setShowMyQR(false)} />}
+      {showQRScanner && (
+        <QRScannerModal
+          onClose={() => setShowQRScanner(false)}
+          onFound={(username) => {
+            setShowQRScanner(false);
+            onSendRequest?.(username)?.catch?.(() => {});
+          }}
+        />
+      )}
       {showVerifyUsers && <VerifyUsersModal onClose={() => setShowVerifyUsers(false)} />}
       {showCreateGroup && (
         <CreateGroupModal
@@ -242,13 +357,18 @@ export default function Sidebar({
             <button
               key={c.key}
               onClick={() => onSelectConversation(c)}
-              className={`w-full flex items-center gap-3 px-3 py-3 sm:py-2.5 rounded-xl mb-1 transition-colors text-left ${
+              className={`group w-full flex items-center gap-3 px-3 py-3 sm:py-2.5 rounded-xl mb-1 transition-colors text-left ${
                 activeKey === c.key ? 'bg-ember-500/10 shadow-neon-inset' : 'hover:bg-void/60 active:bg-void/80'
               }`}
             >
               <Avatar username={c.title} avatar={c.avatar} online={!c.isGroup && c.isOnline} />
               <div className="min-w-0 flex-1">
                 <p className={`text-[15px] sm:text-sm truncate flex items-center gap-1 ${c.unread > 0 ? 'font-semibold' : 'font-medium'} text-ember-50`}>
+                  {c.pinned && (
+                    <svg viewBox="0 0 24 24" width="11" height="11" className="fill-ember-400 shrink-0">
+                      <path d="M16 3v6l2 2v2h-6v6l-1 1-1-1v-6H4v-2l2-2V3h1V2h6v1z" />
+                    </svg>
+                  )}
                   <span className="truncate">{c.title}</span>
                   {c.verified && <VerifiedBadge size={13} />}
                   {c.isGroup && <span className="text-ember-50/30 text-xs font-normal">group</span>}
@@ -260,6 +380,24 @@ export default function Sidebar({
               {c.unread > 0 && (
                 <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-ember-500 text-void-950 text-[11px] font-bold flex items-center justify-center shadow-neon">
                   {c.unread}
+                </span>
+              )}
+              {!c.isAI && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePin?.(c.key);
+                  }}
+                  className={`shrink-0 p-1 rounded-full transition-opacity ${
+                    c.pinned ? 'opacity-100 text-ember-400' : 'opacity-0 group-hover:opacity-100 text-ember-50/30 hover:text-ember-50/70'
+                  }`}
+                  aria-label={c.pinned ? 'Unpin chat' : 'Pin chat'}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" className="fill-current">
+                    <path d="M16 3v6l2 2v2h-6v6l-1 1-1-1v-6H4v-2l2-2V3h1V2h6v1z" />
+                  </svg>
                 </span>
               )}
             </button>

@@ -15,7 +15,8 @@ import accountRoutes from './routes/account.js';
 import blockRoutes from './routes/block.js';
 import groupRoutes from './routes/groups.js';
 import { initSocket } from './socket/index.js';
-
+import scheduledRoutes from './routes/scheduled.js';
+import { startScheduledMessageWorker } from './utils/scheduleMessageWorker.js';
 const app = express();
 const httpServer = createServer(app);
 
@@ -43,10 +44,13 @@ app.use('/api/status', statusRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/block', blockRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/scheduled', scheduledRoutes);
+
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 initSocket(io);
+startScheduledMessageWorker(io);
 
 const PORT = process.env.PORT || 5000;
 

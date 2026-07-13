@@ -15,6 +15,7 @@ const groupSchema = new mongoose.Schema(
     avatar: { type: String, default: '' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     members: [memberSchema],
+    autoDeleteSeconds: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

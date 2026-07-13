@@ -15,6 +15,7 @@ function summarize(group) {
     avatar: group.avatar,
     createdBy: group.createdBy,
     members: group.members,
+    autoDeleteSeconds: group.autoDeleteSeconds || 0,
   };
 }
 
@@ -171,6 +172,21 @@ router.patch('/:id', requireAuth, async (req, res) => {
     res.json(summarize(group));
   } catch (err) {
     res.status(500).json({ message: 'Could not update group' });
+  }
+});
+
+// PATCH /api/groups/:id/auto-delete { seconds } -> 0 = off (admin only)
+router.patch('/:id/auto-delete', requireAuth, async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id);
+    if (!group || !group.isMember(req.userId)) return res.status(404).json({ message: 'Group not found' });
+    if (!group.isAdmin(req.userId)) return res.status(403).json({ message: 'Only admins can change this' });
+
+    group.autoDeleteSeconds = Math.max(0, parseInt(req.body.seconds, 10) || 0);
+    await group.save();
+    res.json({ autoDeleteSeconds: group.autoDeleteSeconds });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update auto-delete setting' });
   }
 });
 

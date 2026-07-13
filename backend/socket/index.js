@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Block from '../models/Block.js';
 import Group from '../models/Group.js';
 import { sendPushToUser } from '../utils/webpush.js';
+import { getAIReply } from '../utils/aiAssistant.js';
 
 // userId -> Set of socket ids (a user can have multiple tabs/devices open)
 export const onlineUsers = new Map();
@@ -41,17 +42,48 @@ function removeSocket(userId, socketId) {
   if (set.size === 0) onlineUsers.delete(userId);
 }
 
+// Sends a PERSONALIZED online-users list to every connected socket, instead
+// of one global broadcast - each viewer only sees users who haven't hidden
+// their online status from them (privacy.hideOnlineStatus + onlineVisibleTo).
+async function broadcastOnlineUsers(io) {
+  const ids = Array.from(onlineUsers.keys());
+  const users = ids.length ? await User.find({ _id: { $in: ids } }).select('privacy') : [];
+  const userMap = new Map(users.map((u) => [String(u._id), u]));
+
+  for (const [viewerId, sockets] of onlineUsers.entries()) {
+    const visibleIds = ids.filter((id) => {
+      if (id === viewerId) return true;
+      const u = userMap.get(id);
+      return u ? u.isOnlineVisibleTo(viewerId) : true;
+    });
+    sockets.forEach((sid) => io.to(sid).emit('online_users', visibleIds));
+  }
+}
+
+// Same idea for last-seen: only tell currently-connected viewers who are
+// actually allowed to see it (privacy.lastSeenVisibility). Offline viewers
+// just get the correct (possibly hidden) value next time they fetch /friends.
+async function broadcastLastSeen(io, userId, lastSeen) {
+  const target = await User.findById(userId).select('privacy');
+  if (!target) return;
+  for (const [viewerId, sockets] of onlineUsers.entries()) {
+    if (viewerId === String(userId) || target.isLastSeenVisibleTo(viewerId)) {
+      sockets.forEach((sid) => io.to(sid).emit('user_last_seen', { userId, lastSeen }));
+    }
+  }
+}
+
 function scheduleOfflineStamp(io, userId) {
   clearTimeout(pendingOffline.get(userId));
   const timeoutId = setTimeout(async () => {
     pendingOffline.delete(userId);
     if (onlineUsers.has(userId)) return;
 
-    io.emit('online_users', Array.from(onlineUsers.keys()));
+    await broadcastOnlineUsers(io);
     try {
       const lastSeen = new Date();
       await User.findByIdAndUpdate(userId, { lastSeen });
-      io.emit('user_last_seen', { userId, lastSeen });
+      await broadcastLastSeen(io, userId, lastSeen);
     } catch (err) {
       console.error('lastSeen update error:', err.message);
     }
@@ -73,6 +105,8 @@ function previewFor(message) {
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
+  if (message.type === 'poll') return `📊 Poll: ${message.poll?.question || ''}`;
+  if (message.type === 'location') return message.location?.live ? '📍 Live location' : '📍 Location';
   return message.content;
 }
 
@@ -107,6 +141,36 @@ async function markGroupSeen(io, viewerId, groupId, group) {
   }
 }
 
+// Fetches the last few messages of a DM with the AI Assistant, asks
+// Anthropic for a reply, saves it as a message FROM the bot, and pushes it
+// to the human side in real time - same shape as a normal received message.
+async function replyAsAssistant(io, conversationId, userId, botId) {
+  const recent = await Message.find({ conversationId, type: 'text' })
+    .sort({ createdAt: -1 })
+    .limit(12)
+    .lean();
+  recent.reverse();
+
+  const history = recent.map((m) => ({
+    role: String(m.sender) === String(botId) ? 'assistant' : 'user',
+    content: m.content,
+  }));
+  if (history.length === 0 || history[history.length - 1].role !== 'user') return;
+
+  const replyText = await getAIReply(history);
+
+  const reply = await Message.create({
+    sender: botId,
+    receiver: userId,
+    conversationId,
+    type: 'text',
+    content: replyText,
+    seen: false,
+  });
+
+  emitToUser(io, userId, 'receive_message', reply);
+}
+
 export function initSocket(io) {
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -123,22 +187,31 @@ export function initSocket(io) {
   io.on('connection', async (socket) => {
     const userId = socket.userId;
     addSocket(userId, socket.id);
-    io.emit('online_users', Array.from(onlineUsers.keys()));
+    await broadcastOnlineUsers(io);
 
     socket.on(
       'send_message',
       async (
-        { receiver, groupId, content, type, mediaUrl, duration, replyTo, viewOnce, statusReplyTo },
+        { receiver, groupId, content, type, mediaUrl, duration, replyTo, viewOnce, statusReplyTo, poll, location },
         callback
       ) => {
         try {
           const messageType = type || 'text';
           if (!receiver && !groupId) return callback?.({ error: 'No recipient specified' });
           if (messageType === 'text' && !content?.trim()) return callback?.(null);
-          if (messageType !== 'text' && !mediaUrl) return callback?.({ error: 'Missing media' });
+          if (['image', 'video', 'voice'].includes(messageType) && !mediaUrl) {
+            return callback?.({ error: 'Missing media' });
+          }
+          if (messageType === 'poll' && (!poll?.question?.trim() || !poll?.options || poll.options.length < 2)) {
+            return callback?.({ error: 'A poll needs a question and at least 2 options' });
+          }
+          if (messageType === 'location' && (typeof location?.lat !== 'number' || typeof location?.lng !== 'number')) {
+            return callback?.({ error: 'Missing location coordinates' });
+          }
 
           let group = null;
           let conversationId;
+          let botReceiver = null;
 
           if (groupId) {
             group = await Group.findById(groupId);
@@ -147,28 +220,28 @@ export function initSocket(io) {
             }
             conversationId = Message.conversationIdForGroup(groupId);
           } else {
-            // Only accepted friends who haven't blocked each other can exchange DMs
-            const relation = await Friendship.findBetween(userId, receiver);
-            if (!relation || relation.status !== 'accepted') {
-              return callback?.({ error: 'You must be friends to message this user' });
+            botReceiver = await User.findById(receiver).select('isBot');
+            if (botReceiver?.isBot) {
+              // The AI Assistant isn't a real friend - messaging it always works
+              conversationId = Message.conversationIdFor(userId, receiver);
+            } else {
+              const relation = await Friendship.findBetween(userId, receiver);
+              if (!relation || relation.status !== 'accepted') {
+                return callback?.({ error: 'You must be friends to message this user' });
+              }
+              if (await Block.existsBetween(userId, receiver)) {
+                return callback?.({ error: 'You can no longer message this user' });
+              }
+              conversationId = Message.conversationIdFor(userId, receiver);
             }
-            if (await Block.existsBetween(userId, receiver)) {
-              return callback?.({ error: 'You can no longer message this user' });
-            }
-            conversationId = Message.conversationIdFor(userId, receiver);
           }
 
-          // If replying, make sure the quoted message is actually part of
-          // this same conversation (can't quote a message from elsewhere)
           let replyToId = null;
           if (replyTo) {
             const original = await Message.findOne({ _id: replyTo, conversationId }).select('_id');
             if (original) replyToId = original._id;
           }
 
-          // Replying to a status: snapshot its content now, since the
-          // status itself auto-expires after 24h and the quote should keep
-          // working after that.
           let statusReplySnapshot = null;
           if (statusReplyTo && !group) {
             const status = await Status.findById(statusReplyTo);
@@ -183,6 +256,25 @@ export function initSocket(io) {
             }
           }
 
+          let pollData = null;
+          if (messageType === 'poll') {
+            pollData = {
+              question: poll.question.trim(),
+              options: poll.options.slice(0, 10).map((o) => ({ text: String(o).trim().slice(0, 100), votes: [] })),
+              allowMultiple: !!poll.allowMultiple,
+            };
+          }
+
+          let locationData = null;
+          if (messageType === 'location') {
+            locationData = {
+              lat: location.lat,
+              lng: location.lng,
+              live: !!location.live,
+              expiresAt: location.live ? new Date(Date.now() + (location.liveMinutes || 60) * 60000) : null,
+            };
+          }
+
           let message = await Message.create({
             sender: userId,
             receiver: group ? null : receiver,
@@ -194,6 +286,8 @@ export function initSocket(io) {
             duration: duration || 0,
             replyTo: replyToId,
             statusReplyTo: statusReplySnapshot,
+            poll: pollData,
+            location: locationData,
             viewOnce: !group && messageType === 'image' ? !!viewOnce : false,
             seenBy: group ? [{ user: userId, seenAt: new Date() }] : [],
           });
@@ -210,8 +304,6 @@ export function initSocket(io) {
           if (group) {
             const otherMembers = group.members.filter((m) => String(m.user) !== userId);
 
-            // Anyone with this group open right now has effectively already
-            // "seen" it - mark them in before broadcasting.
             const instantSeenIds = otherMembers
               .filter((m) => openGroupConversations.get(String(m.user)) === String(groupId))
               .map((m) => String(m.user));
@@ -224,7 +316,6 @@ export function initSocket(io) {
             otherMembers.forEach((m) => emitToUser(io, m.user, 'receive_message', message));
             callback?.(message);
 
-            // Push-notify members who are fully offline
             otherMembers
               .filter((m) => !isUserOnline(m.user))
               .forEach((m) => {
@@ -252,16 +343,41 @@ export function initSocket(io) {
               emitToUser(io, userId, 'messages_seen', { by: receiver, upTo: message._id });
             }
 
-            // Receiver has no tab/app open at all -> fall back to a Web Push
-            // notification, same as before.
-            sendPushToUser(receiver, {
-              title: sender?.username || 'New message',
-              body: previewFor(message),
-              icon: sender?.avatar || '/icon-192.png',
-              tag: `chat-${userId}`,
-              url: '/',
-              senderId: userId,
-            }).catch((err) => console.error('push send error:', err));
+           if (botReceiver?.isBot) {
+
+  // Show typing
+  emitToUser(io, userId, "typing", {
+    from: receiver,
+    isTyping: true,
+  });
+
+  replyAsAssistant(io, conversationId, userId, receiver)
+    .then(() => {
+      // Hide typing
+      emitToUser(io, userId, "typing", {
+        from: receiver,
+        isTyping: false,
+      });
+    })
+    .catch((err) => {
+      console.error("AI assistant reply error:", err.message);
+
+      emitToUser(io, userId, "typing", {
+        from: receiver,
+        isTyping: false,
+      });
+    });
+
+}  else {
+              sendPushToUser(receiver, {
+                title: sender?.username || 'New message',
+                body: previewFor(message),
+                icon: sender?.avatar || '/icon-192.png',
+                tag: `chat-${userId}`,
+                url: '/',
+                senderId: userId,
+              }).catch((err) => console.error('push send error:', err));
+            }
           }
         } catch (err) {
           console.error('send_message error:', err.message);
@@ -269,6 +385,63 @@ export function initSocket(io) {
         }
       }
     );
+
+    // ---- Poll voting ----
+    socket.on('vote_poll', async ({ messageId, optionIndexes }) => {
+      try {
+        const message = await Message.findById(messageId);
+        if (!message || message.type !== 'poll' || !message.poll) return;
+
+        let group = null;
+        if (message.group) {
+          group = await Group.findById(message.group).select('members');
+          if (!group?.isMember(userId)) return;
+        } else if (String(message.sender) !== userId && String(message.receiver) !== userId) {
+          return;
+        }
+
+        const indexes = message.poll.allowMultiple ? optionIndexes : optionIndexes.slice(0, 1);
+        message.poll.options.forEach((opt, i) => {
+          opt.votes = opt.votes.filter((v) => String(v) !== userId);
+          if (indexes.includes(i)) opt.votes.push(userId);
+        });
+        await message.save();
+
+        const payload = { messageId, poll: message.poll };
+        if (group) {
+          group.members.forEach((m) => emitToUser(io, m.user, 'poll_updated', payload));
+        } else {
+          emitToUser(io, userId, 'poll_updated', payload);
+          emitToUser(io, String(message.sender) === userId ? message.receiver : message.sender, 'poll_updated', payload);
+        }
+      } catch (err) {
+        console.error('vote_poll error:', err.message);
+      }
+    });
+
+    // ---- Live location updates ----
+    socket.on('update_live_location', async ({ messageId, lat, lng }) => {
+      try {
+        const message = await Message.findById(messageId);
+        if (!message || message.type !== 'location' || !message.location?.live) return;
+        if (String(message.sender) !== userId) return;
+        if (message.location.expiresAt && message.location.expiresAt < new Date()) return;
+
+        message.location.lat = lat;
+        message.location.lng = lng;
+        await message.save();
+
+        const payload = { messageId, lat, lng };
+        if (message.group) {
+          const group = await Group.findById(message.group).select('members');
+          group?.members.forEach((m) => emitToUser(io, m.user, 'location_updated', payload));
+        } else {
+          emitToUser(io, message.receiver, 'location_updated', payload);
+        }
+      } catch (err) {
+        console.error('update_live_location error:', err.message);
+      }
+    });
 
     // ---- Edit message (text only, sender only) ----
     socket.on('edit_message', async ({ messageId, content }) => {

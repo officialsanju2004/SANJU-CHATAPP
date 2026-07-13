@@ -6,6 +6,7 @@ import Group from '../models/Group.js';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadChatMedia } from '../middleware/upload.js';
 import { emitToUser } from '../socket/index.js';
+import User from '../models/User.js';
 
 const router = Router();
 
@@ -47,11 +48,17 @@ router.get('/messages/:otherUserId', requireAuth, async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(otherUserId)) {
       return res.status(400).json({ message: 'Invalid user id' });
     }
+const otherUser = await User.findById(otherUserId).select('isBot');
 
-    const relation = await Friendship.findBetween(req.userId, otherUserId);
-    if (!relation || relation.status !== 'accepted') {
-      return res.status(403).json({ message: 'You must be friends to view this conversation' });
-    }
+if (!otherUser?.isBot) {
+  const relation = await Friendship.findBetween(req.userId, otherUserId);
+
+  if (!relation || relation.status !== 'accepted') {
+    return res.status(403).json({
+      message: 'You must be friends to view this conversation',
+    });
+  }
+}
 
     const conversationId = Message.conversationIdFor(req.userId, otherUserId);
     const query = { conversationId, deletedFor: { $ne: req.userId } };
@@ -168,7 +175,114 @@ router.get('/summaries', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/chat/upload (multipart field name: "media") -> image or voice note
+// POST /api/chat/messages/:messageId/star -> toggle star for me only
+router.post('/messages/:messageId/star', requireAuth, async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.messageId);
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+
+    const isMine = String(message.sender) === req.userId || String(message.receiver) === req.userId;
+    const isGroupMember = message.group ? true : false; // group membership already implied by having loaded it in chat
+    if (!isMine && !isGroupMember) return res.status(403).json({ message: 'Not your conversation' });
+
+    const already = message.starredBy.some((id) => String(id) === req.userId);
+    if (already) {
+      message.starredBy = message.starredBy.filter((id) => String(id) !== req.userId);
+    } else {
+      message.starredBy.push(req.userId);
+    }
+    await message.save();
+    res.json({ starred: !already });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not star message' });
+  }
+});
+
+// GET /api/chat/starred -> every message I've starred, across all conversations
+router.get('/starred', requireAuth, async (req, res) => {
+  try {
+    const messages = await Message.find({ starredBy: req.userId })
+      .sort({ createdAt: -1 })
+      .populate('sender', 'username avatar')
+      .populate('receiver', 'username avatar')
+      .populate('group', 'name avatar')
+      .lean();
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load starred messages' });
+  }
+});
+
+// GET /api/chat/search?conversation=<friendId|group_<id>>&q=text
+router.get('/search', requireAuth, async (req, res) => {
+  try {
+    const { conversation, q } = req.query;
+    if (!conversation || !q?.trim()) return res.json([]);
+
+    let conversationId;
+    if (conversation.startsWith('group_')) {
+      const groupId = conversation.replace('group_', '');
+      const group = await Group.findById(groupId).select('members');
+      if (!group || !group.isMember(req.userId)) return res.status(403).json({ message: 'Not a member' });
+      conversationId = conversation;
+    } else {
+      const relation = await Friendship.findBetween(req.userId, conversation);
+      if (!relation || relation.status !== 'accepted') return res.status(403).json({ message: 'Not friends' });
+      conversationId = Message.conversationIdFor(req.userId, conversation);
+    }
+
+    const matches = await Message.find({
+      conversationId,
+      deletedForEveryone: false,
+      content: { $regex: q.trim(), $options: 'i' },
+    })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select('content type createdAt sender')
+      .lean();
+
+    res.json(matches);
+  } catch (err) {
+    res.status(500).json({ message: 'Could not search messages' });
+  }
+});
+
+// GET /api/chat/messages/:otherUserId/around/:messageId -> jump-to-message:
+// a window of messages centered on a specific one (used by search results)
+router.get('/messages/:otherUserId/around/:messageId', requireAuth, async (req, res) => {
+  try {
+    const { otherUserId, messageId } = req.params;
+    const target = await Message.findById(messageId).select('createdAt conversationId');
+    if (!target) return res.status(404).json({ message: 'Message not found' });
+
+    const otherUser = await User.findById(otherUserId).select('isBot');
+    if (!otherUser?.isBot) {
+      const relation = await Friendship.findBetween(req.userId, otherUserId);
+      if (!relation || relation.status !== 'accepted') {
+        return res.status(403).json({ message: 'You must be friends to view this conversation' });
+      }
+    }
+
+    const [before, after] = await Promise.all([
+      Message.find({ conversationId: target.conversationId, createdAt: { $lte: target.createdAt }, deletedFor: { $ne: req.userId } })
+        .sort({ createdAt: -1 })
+        .limit(15)
+        .populate('replyTo', 'content type mediaUrl sender')
+        .lean(),
+      Message.find({ conversationId: target.conversationId, createdAt: { $gt: target.createdAt }, deletedFor: { $ne: req.userId } })
+        .sort({ createdAt: 1 })
+        .limit(15)
+        .populate('replyTo', 'content type mediaUrl sender')
+        .lean(),
+    ]);
+
+    before.reverse();
+    const messages = maskDeletedForEveryone(maskViewOnce([...before, ...after], req.userId));
+    res.json({ messages, hasMore: before.length === 15 });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load message context' });
+  }
+});
 router.post('/upload', requireAuth, uploadChatMedia.single('media'), async (req, res) => {
   try {
     if (!req.file) {
@@ -228,10 +342,17 @@ router.delete('/messages/:otherUserId', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid user id' });
     }
 
-    const relation = await Friendship.findBetween(req.userId, otherUserId);
-    if (!relation) {
-      return res.status(403).json({ message: 'You can only delete a conversation with a friend' });
-    }
+   const otherUser = await User.findById(otherUserId).select('isBot');
+
+if (!otherUser?.isBot) {
+  const relation = await Friendship.findBetween(req.userId, otherUserId);
+
+  if (!relation || relation.status !== 'accepted') {
+    return res.status(403).json({
+      message: 'You must be friends to view this conversation',
+    });
+  }
+}
 
     const conversationId = Message.conversationIdFor(req.userId, otherUserId);
     await Message.updateMany({ conversationId }, { $addToSet: { deletedFor: req.userId } });

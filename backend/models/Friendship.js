@@ -15,6 +15,11 @@ const friendshipSchema = new mongoose.Schema(
     // or changes the other person's real username.
     requesterNickname: { type: String, trim: true, maxlength: 30, default: '' }, // set BY requester, FOR recipient
     recipientNickname: { type: String, trim: true, maxlength: 30, default: '' }, // set BY recipient, FOR requester
+    // ✅ Auto-delete messages: 0 = off, otherwise seconds after which a
+    // message in this conversation is auto-removed for both sides. Either
+    // person can set it - like WhatsApp's disappearing messages, it applies
+    // going forward to the whole conversation once set.
+    autoDeleteSeconds: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

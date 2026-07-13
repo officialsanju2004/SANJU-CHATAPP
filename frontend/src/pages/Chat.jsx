@@ -1,5 +1,16 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { friendsApi, chatApi, lockApi, statusApi, blockApi, groupsApi, privacyApi, mediaUrl } from '../api/axios.js';
+import {
+  friendsApi,
+  chatApi,
+  lockApi,
+  statusApi,
+  blockApi,
+  groupsApi,
+  privacyApi,
+  mediaUrl,
+  aiApi,
+  pinApi,
+} from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { useNotifications } from '../hooks/useNotifications.js';
@@ -16,6 +27,9 @@ import StatusViewer from '../components/StatusViewer.jsx';
 import StatusComposer from '../components/StatusComposer.jsx';
 import GroupInfoModal from '../components/GroupInfoModal.jsx';
 import RenameContactModal from '../components/RenameContactModal.jsx';
+import WallpaperPicker, { loadWallpaper } from '../components/WallpaperPicker.jsx';
+import AutoDeleteModal from '../components/AutoDeleteModal.jsx';
+import InChatSearchBar from '../components/InChatSearchBar.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
 
 function previewFor(message) {
@@ -23,6 +37,8 @@ function previewFor(message) {
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
+  if (message.type === 'poll') return `📊 ${message.poll?.question || 'Poll'}`;
+  if (message.type === 'location') return message.location?.live ? '📍 Live location' : '📍 Location';
   if (message.deletedForEveryone) return 'This message was deleted';
   return message.content;
 }
@@ -37,6 +53,7 @@ export default function Chat() {
   const [tab, setTab] = useState('chats');
   const [friends, setFriends] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [aiAssistant, setAiAssistant] = useState(null);
   const [activeConversation, setActiveConversation] = useState(null); // { type: 'dm', user } | { type: 'group', group }
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
@@ -47,6 +64,12 @@ export default function Chat() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showRenameContact, setShowRenameContact] = useState(false);
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [showAutoDelete, setShowAutoDelete] = useState(false);
+  const [showInChatSearch, setShowInChatSearch] = useState(false);
+  const [wallpaper, setWallpaper] = useState(null);
+  const [highlightMessageId, setHighlightMessageId] = useState(null);
+  const [pinnedChats, setPinnedChats] = useState(user?.pinnedChats || []);
 
   const [incoming, setIncoming] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,9 +91,16 @@ export default function Chat() {
   const activeConversationRef = useRef(activeConversation);
   activeConversationRef.current = activeConversation;
   const typingTimeoutRef = useRef(null);
+  const liveLocationWatchRef = useRef(null);
 
   const activeUser = activeConversation?.type === 'dm' ? activeConversation.user : null;
   const activeGroup = activeConversation?.type === 'group' ? activeConversation.group : null;
+
+  const activeKey = activeConversation
+    ? activeConversation.type === 'dm'
+      ? `dm-${activeConversation.user._id}`
+      : `group-${activeConversation.group._id}`
+    : null;
 
   const loadFriends = useCallback(() => {
     friendsApi.list().then(({ data }) => setFriends(data));
@@ -114,7 +144,12 @@ export default function Chat() {
     loadBlocked();
     lockApi.status().then(({ data }) => setLockEnabled(data.enabled)).finally(() => setLockChecked(true));
     privacyApi.get().then(({ data }) => setPrivacyBlockGroupAdd(data.blockGroupAdd)).catch(() => {});
+    aiApi.get().then(({ data }) => setAiAssistant(data)).catch(() => {});
   }, [loadFriends, loadGroups, loadIncoming, loadSummaries, loadStatusFeed, loadBlocked]);
+
+  useEffect(() => {
+    if (user?.pinnedChats) setPinnedChats(user.pinnedChats);
+  }, [user?.pinnedChats]);
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -134,6 +169,8 @@ export default function Chat() {
     setMessages([]);
     setRemoteTyping(false);
     setReplyingTo(null);
+    setShowInChatSearch(false);
+    setWallpaper(loadWallpaper(activeKey));
 
     const fetcher =
       activeConversation.type === 'dm'
@@ -146,6 +183,7 @@ export default function Chat() {
         setHasMore(data.hasMore);
       })
       .catch(() => setMessages([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation]);
 
   // Clear the unread badge locally the instant a conversation is opened
@@ -331,6 +369,46 @@ export default function Chat() {
     return () => socket.off('view_once_opened', handler);
   }, [socket]);
 
+  // Real-time: poll votes
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId, poll }) => {
+      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, poll } : m)));
+    };
+    socket.on('poll_updated', handler);
+    return () => socket.off('poll_updated', handler);
+  }, [socket]);
+
+  // Real-time: live location updates
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ messageId, lat, lng }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, location: { ...m.location, lat, lng } } : m))
+      );
+    };
+    socket.on('location_updated', handler);
+    return () => socket.off('location_updated', handler);
+  }, [socket]);
+
+  // Real-time: a reminder just fired
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ reminder }) => {
+      notify('⏰ Reminder', { body: reminder.note || previewFor(reminder.message) || 'You asked to be reminded' });
+    };
+    socket.on('reminder_due', handler);
+    return () => socket.off('reminder_due', handler);
+  }, [socket, notify]);
+
+  // Real-time: verified badge granted/revoked on my own account
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ verified }) => updateUser({ verified });
+    socket.on('verification_changed', handler);
+    return () => socket.off('verification_changed', handler);
+  }, [socket, updateUser]);
+
   // Real-time: added to / removed from a group
   useEffect(() => {
     if (!socket) return;
@@ -348,13 +426,6 @@ export default function Chat() {
       socket.off('removed_from_group', handleRemoved);
     };
   }, [socket, loadGroups]);
-
-  useEffect(() => {
-    if (!socket) return;
-    const handler = ({ verified }) => updateUser({ verified });
-    socket.on('verification_changed', handler);
-    return () => socket.off('verification_changed', handler);
-  }, [socket, updateUser]);
 
   useEffect(() => {
     if (!socket) return;
@@ -412,7 +483,7 @@ export default function Chat() {
   }, [socket]);
 
   const sendMessage = useCallback(
-    (payload) => {
+    (payload, callback) => {
       if (!activeConversation || !socket) return;
       setMessageError('');
       const withReply = replyingTo ? { ...payload, replyTo: replyingTo._id } : payload;
@@ -434,6 +505,7 @@ export default function Chat() {
             );
           }
         }
+        callback?.(result);
       });
       setReplyingTo(null);
     },
@@ -444,6 +516,43 @@ export default function Chat() {
   const handleSendMedia = ({ type, mediaUrl: url, duration, viewOnce }) =>
     sendMessage({ type, mediaUrl: url, duration, viewOnce });
 
+  const handleSendPoll = ({ question, options, allowMultiple }) =>
+    sendMessage({ type: 'poll', poll: { question, options, allowMultiple } });
+
+  const handleSendLocation = ({ lat, lng, live, liveMinutes }) => {
+    sendMessage({ type: 'location', location: { lat, lng, live, liveMinutes } }, (result) => {
+      if (!live || !result?._id || !socket) return;
+
+      // Keep pushing fresh coordinates while the share is live, using the
+      // browser's own location watcher - stops automatically once the
+      // share's duration is up.
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          socket.emit('update_live_location', {
+            messageId: result._id,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        },
+        () => {},
+        { enableHighAccuracy: true }
+      );
+      liveLocationWatchRef.current = watchId;
+      setTimeout(() => {
+        navigator.geolocation.clearWatch(watchId);
+      }, (liveMinutes || 60) * 60000);
+    });
+  };
+
+  useEffect(
+    () => () => {
+      if (liveLocationWatchRef.current != null) {
+        navigator.geolocation.clearWatch(liveLocationWatchRef.current);
+      }
+    },
+    []
+  );
+
   const handleReact = useCallback(
     (messageId, emoji) => {
       if (!socket) return;
@@ -451,6 +560,32 @@ export default function Chat() {
     },
     [socket]
   );
+
+  const handleVotePoll = useCallback(
+    (messageId, optionIndexes) => {
+      if (!socket) return;
+      socket.emit('vote_poll', { messageId, optionIndexes });
+    },
+    [socket]
+  );
+
+  const handleToggleStar = useCallback(async (messageId) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m._id !== messageId) return m;
+        const already = m.starredBy?.some((id) => id === user.id || id?._id === user.id);
+        const nextStarredBy = already
+          ? m.starredBy.filter((id) => id !== user.id && id?._id !== user.id)
+          : [...(m.starredBy || []), user.id];
+        return { ...m, starredBy: nextStarredBy };
+      })
+    );
+    try {
+      await chatApi.toggleStar(messageId);
+    } catch (err) {
+      // best-effort; a page refresh will resync if this failed
+    }
+  }, [user]);
 
   const handleEdit = useCallback(
     (messageId, content) => {
@@ -506,10 +641,13 @@ export default function Chat() {
     setActionError('');
     try {
       await friendsApi.sendRequest(username);
-      const { data } = await friendsApi.search(searchQuery.trim());
-      setSearchResults(data);
+      if (searchQuery.trim()) {
+        const { data } = await friendsApi.search(searchQuery.trim());
+        setSearchResults(data);
+      }
     } catch (err) {
       setActionError(err.response?.data?.message || 'Could not send request');
+      throw err;
     }
   };
 
@@ -527,7 +665,6 @@ export default function Chat() {
   const handleDeleteChat = async () => {
     if (!activeConversation) return;
     if (activeConversation.type === 'group') {
-      // "Delete" for a group just means leaving it
       await groupsApi.removeMember(activeConversation.group._id, user.id);
       setActiveConversation(null);
       loadGroups();
@@ -564,6 +701,15 @@ export default function Chat() {
     await privacyApi.update(value).catch(() => {});
   };
 
+  const handleTogglePin = useCallback(async (conversationKey) => {
+    try {
+      const { data } = await pinApi.toggle(conversationKey);
+      setPinnedChats(data.pinnedChats);
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
   const handleNicknameSaved = (nickname) => {
     if (!activeUser) return;
     setFriends((prev) => prev.map((f) => (f._id === activeUser._id ? { ...f, nickname } : f)));
@@ -594,11 +740,49 @@ export default function Chat() {
     [socket]
   );
 
+  // Global search "Open chat" -> jump straight to that DM (used both for
+  // regular friends and for results that happen to already be friends)
+  const handleOpenChatFromSearch = useCallback(
+    (u) => {
+      setActiveConversation({ type: 'dm', user: u });
+      setTab('chats');
+    },
+    []
+  );
+
+  // Jump to a specific message (from search results or starred list) - loads
+  // a window of history centered on it and briefly highlights the bubble
+  const handleJumpToMessage = useCallback(
+    async (message) => {
+      const senderId = message.sender?._id || message.sender;
+      const receiverId = message.receiver?._id || message.receiver;
+      const otherId = senderId === user.id ? receiverId : senderId;
+
+      if (message.group) {
+        const group = groups.find((g) => g._id === (message.group._id || message.group));
+        if (group) setActiveConversation({ type: 'group', group });
+      } else if (otherId) {
+        const friend = friends.find((f) => f._id === otherId);
+        if (friend) {
+          setActiveConversation({ type: 'dm', user: friend });
+          const { data } = await chatApi.messagesAround(otherId, message._id);
+          setMessages(data.messages);
+          setHasMore(data.hasMore);
+        }
+      }
+      setTab('chats');
+      setHighlightMessageId(message._id);
+      setTimeout(() => setHighlightMessageId(null), 2500);
+    },
+    [friends, groups, user]
+  );
+
   const conversations = useMemo(() => {
     const dmItems = friends.map((f) => {
       const summary = summaries[f._id];
+      const key = `dm-${f._id}`;
       return {
-        key: `dm-${f._id}`,
+        key,
         type: 'dm',
         raw: f,
         title: f.nickname || f.username,
@@ -609,34 +793,58 @@ export default function Chat() {
         unread: summary?.unreadCount || 0,
         lastActivity: summary?.lastMessage?.createdAt || null,
         isGroup: false,
+        pinned: pinnedChats.includes(key),
       };
     });
-    const groupItems = groups.map((g) => ({
-      key: `group-${g._id}`,
-      type: 'group',
-      raw: g,
-      title: g.name,
-      avatar: g.avatar,
-      isOnline: false,
-      preview: g.lastMessage
-        ? `${g.lastMessage.sender?.username ? g.lastMessage.sender.username + ': ' : ''}${previewFor(g.lastMessage)}`
-        : 'No messages yet',
-      unread: g.unreadCount || 0,
-      lastActivity: g.lastMessage?.createdAt || g.createdAt,
-      isGroup: true,
-    }));
-    return [...dmItems, ...groupItems].sort((a, b) => {
+
+    if (aiAssistant) {
+      const key = `dm-${aiAssistant._id}`;
+      dmItems.unshift({
+        key,
+        type: 'dm',
+        raw: aiAssistant,
+        title: aiAssistant.username === 'ai-assistant' ? 'AI Assistant' : aiAssistant.username,
+        avatar: aiAssistant.avatar,
+        verified: aiAssistant.verified,
+        isOnline: true,
+        preview: 'Ask me anything 🤖',
+        unread: 0,
+        lastActivity: null,
+        isGroup: false,
+        pinned: pinnedChats.includes(key),
+      });
+    }
+
+    const groupItems = groups.map((g) => {
+      const key = `group-${g._id}`;
+      return {
+        key,
+        type: 'group',
+        raw: g,
+        title: g.name,
+        avatar: g.avatar,
+        isOnline: false,
+        preview: g.lastMessage
+          ? `${g.lastMessage.sender?.username ? g.lastMessage.sender.username + ': ' : ''}${previewFor(g.lastMessage)}`
+          : 'No messages yet',
+        unread: g.unreadCount || 0,
+        lastActivity: g.lastMessage?.createdAt || g.createdAt,
+        isGroup: true,
+        pinned: pinnedChats.includes(key),
+      };
+    });
+
+    const all = [...dmItems, ...groupItems].sort((a, b) => {
       if (!a.lastActivity) return 1;
       if (!b.lastActivity) return -1;
       return new Date(b.lastActivity) - new Date(a.lastActivity);
     });
-  }, [friends, groups, summaries, onlineUsers]);
 
-  const activeKey = activeConversation
-    ? activeConversation.type === 'dm'
-      ? `dm-${activeConversation.user._id}`
-      : `group-${activeConversation.group._id}`
-    : null;
+    // Pinned chats float to the top, in pinnedChats order (most recently pinned first)
+    const pinned = pinnedChats.map((key) => all.find((c) => c.key === key)).filter(Boolean);
+    const rest = all.filter((c) => !c.pinned);
+    return [...pinned, ...rest];
+  }, [friends, groups, summaries, onlineUsers, aiAssistant, pinnedChats]);
 
   if (!lockChecked) return null;
   if (lockEnabled && !unlocked) return <PinLockScreen onUnlock={() => setUnlocked(true)} />;
@@ -669,6 +877,10 @@ export default function Chat() {
         onGroupCreated={() => loadGroups()}
         privacyBlockGroupAdd={privacyBlockGroupAdd}
         onTogglePrivacy={handleTogglePrivacy}
+        onOpenChat={handleOpenChatFromSearch}
+        onSendRequest={handleSendRequest}
+        onJumpToMessage={handleJumpToMessage}
+        onTogglePin={handleTogglePin}
       >
         <AddFriendsPanel
           searchQuery={searchQuery}
@@ -682,7 +894,7 @@ export default function Chat() {
         />
       </Sidebar>
 
-      <main className={`flex-1 flex-col h-full min-w-0 ${activeConversation ? 'flex' : 'hidden sm:flex'}`}>
+      <main className={`flex-1 flex-col h-full min-w-0 relative ${activeConversation ? 'flex' : 'hidden sm:flex'}`}>
         <ChatHeader
           activeUser={activeUser}
           activeGroup={activeGroup}
@@ -696,7 +908,20 @@ export default function Chat() {
           onToggleBlock={handleToggleBlock}
           onOpenGroupInfo={() => setShowGroupInfo(true)}
           onRenameContact={() => setShowRenameContact(true)}
+          onToggleSearch={() => setShowInChatSearch((v) => !v)}
+          onOpenWallpaper={() => setShowWallpaperPicker(true)}
+          onOpenAutoDelete={() => setShowAutoDelete(true)}
         />
+        {showInChatSearch && activeConversation && (
+          <InChatSearchBar
+            conversationKey={activeConversation.type === 'dm' ? activeUser._id : `group_${activeGroup._id}`}
+            onClose={() => setShowInChatSearch(false)}
+            onJump={(m) => {
+              setShowInChatSearch(false);
+              handleJumpToMessage(m);
+            }}
+          />
+        )}
         {messageError && (
           <div className="mx-4 sm:mx-6 mt-3 text-sm text-ember-200 bg-ember-900/40 border border-ember-700/50 rounded-lg px-3 py-2">
             {messageError}
@@ -718,16 +943,24 @@ export default function Chat() {
           onUnsend={handleUnsend}
           isGroup={!!activeGroup}
           memberCount={activeGroup?.members?.length}
+          onVotePoll={handleVotePoll}
+          onToggleStar={handleToggleStar}
+          wallpaper={wallpaper}
+          highlightMessageId={highlightMessageId}
         />
         <MessageComposer
           onSendText={handleSendText}
           onSendMedia={handleSendMedia}
+          onSendPoll={handleSendPoll}
+          onSendLocation={handleSendLocation}
           onTyping={handleTyping}
           disabled={!activeConversation || (activeUser && blockedIds.has(activeUser._id))}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
           currentUserId={user?.id}
           friendUsername={activeUser?.username}
+          conversationKey={activeKey}
+          scheduleTarget={activeConversation}
         />
       </main>
 
@@ -770,6 +1003,31 @@ export default function Chat() {
           friend={activeUser}
           onClose={() => setShowRenameContact(false)}
           onSaved={handleNicknameSaved}
+        />
+      )}
+
+      {showWallpaperPicker && activeConversation && (
+        <WallpaperPicker
+          conversationKey={activeKey}
+          onClose={() => setShowWallpaperPicker(false)}
+          onChanged={setWallpaper}
+        />
+      )}
+
+      {showAutoDelete && activeConversation && (
+        <AutoDeleteModal
+          target={activeConversation}
+          currentSeconds={activeUser?.autoDeleteSeconds || activeGroup?.autoDeleteSeconds || 0}
+          onClose={() => setShowAutoDelete(false)}
+          onChanged={(seconds) => {
+            if (activeConversation.type === 'dm') {
+              setFriends((prev) => prev.map((f) => (f._id === activeUser._id ? { ...f, autoDeleteSeconds: seconds } : f)));
+              setActiveConversation((prev) => ({ ...prev, user: { ...prev.user, autoDeleteSeconds: seconds } }));
+            } else {
+              setGroups((prev) => prev.map((g) => (g._id === activeGroup._id ? { ...g, autoDeleteSeconds: seconds } : g)));
+              setActiveConversation((prev) => ({ ...prev, group: { ...prev.group, autoDeleteSeconds: seconds } }));
+            }
+          }}
         />
       )}
     </div>
