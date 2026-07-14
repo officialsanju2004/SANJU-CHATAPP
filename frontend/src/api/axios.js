@@ -22,6 +22,7 @@ export const friendsApi = {
   list: () => api.get('/friends'),
   setNickname: (friendUserId, nickname) => api.patch(`/friends/${friendUserId}/nickname`, { nickname }),
   setAutoDelete: (friendUserId, seconds) => api.patch(`/friends/${friendUserId}/auto-delete`, { seconds }),
+  remove: (friendUserId) => api.delete(`/friends/${friendUserId}`),
 };
 
 export const chatApi = {
@@ -184,3 +185,4 @@ export const mediaUrl = (relativePath) => {
 };
 
 export default api;
+

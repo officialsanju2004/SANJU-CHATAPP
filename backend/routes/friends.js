@@ -262,4 +262,34 @@ router.patch('/:friendUserId/auto-delete', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/friends/:friendUserId -> remove an existing friend ("unfriend").
+// Either side can do this. It deletes the Friendship document outright, which
+// also means the socket layer's `Friendship.findBetween(...).status ===
+// 'accepted'` check will reject any further messaging - exactly like never
+// having been friends. Re-connecting afterwards just goes through the normal
+// Add Friends -> request -> accept flow that already exists.
+router.delete('/:friendUserId', requireAuth, async (req, res) => {
+  try {
+    const { friendUserId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(friendUserId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const relation = await Friendship.findBetween(req.userId, friendUserId);
+    if (!relation || relation.status !== 'accepted') {
+      return res.status(404).json({ message: 'You are not friends with this user' });
+    }
+
+    await relation.deleteOne();
+
+    // Tell the other person's client in real time, so this friend
+    // disappears from their chat list too - not just yours.
+    emitToUser(req.app.locals.io, friendUserId, 'friend_removed', { userId: req.userId });
+
+    res.json({ message: 'Friend removed' });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not remove friend' });
+  }
+});
+
 export default router;

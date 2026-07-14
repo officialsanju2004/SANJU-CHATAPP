@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Avatar from './Avatar.jsx';
 import VerifiedBadge from './VerifiedBadge.jsx';
 import { formatLastSeen } from '../utils/time.js';
+import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 export default function ChatHeader({
   activeUser,
@@ -19,8 +20,10 @@ export default function ChatHeader({
   onToggleSearch,
   onOpenWallpaper,
   onOpenAutoDelete,
+  onRemoveFriend,
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  useBackClose(showMenu, () => setShowMenu(false));
 
   if (!activeUser && !activeGroup) {
     return (
@@ -112,7 +115,7 @@ export default function ChatHeader({
 
           {showMenu && (
             <>
-              <div className="fixed inset-0 z-30" onClick={() => setShowMenu(false)} />
+              <div className="fixed inset-0 z-30" onClick={closeViaBack} />
               <div className="absolute right-0 top-11 z-40 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden w-52">
                 {isGroup ? (
                   <button
@@ -145,6 +148,21 @@ export default function ChatHeader({
                       } hover:bg-surface-light`}
                     >
                       {isBlocked ? `Unblock ${activeUser.username}` : `Block ${activeUser.username}`}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        if (
+                          window.confirm(
+                            `Remove ${activeUser.username} as a friend? You'll need to send a new friend request to chat again.`
+                          )
+                        ) {
+                          onRemoveFriend?.();
+                        }
+                      }}
+                      className="w-full text-left text-sm text-red-400 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+                    >
+                      Remove friend
                     </button>
                   </>
                 )}

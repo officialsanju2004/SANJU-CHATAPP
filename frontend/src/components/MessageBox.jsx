@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { mediaUrl, chatApi } from '../api/axios.js';
 import { formatMessageTime, formatDuration, formatDateSeparator, isDifferentDay } from '../utils/time.js';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js';
@@ -12,6 +13,7 @@ import ReminderModal from './ReminderModal.jsx';
 import PollComposerModal from './PollComposerModal.jsx';
 import LocationShareModal from './LocationShareModal.jsx';
 import ScheduleMessageModal from './ScheduleMessageModal.jsx';
+import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 // Two overlapping checkmarks, WhatsApp-style. Gray = sent, blue = seen.
 function Ticks({ seen }) {
@@ -54,6 +56,7 @@ function replyPreviewText(replyTo) {
   if (!replyTo) return '';
   if (replyTo.type === 'image') return '📷 Photo';
   if (replyTo.type === 'voice') return '🎤 Voice message';
+  if (replyTo.type === 'file') return `📄 ${replyTo.fileName || 'Document'}`;
   return replyTo.content;
 }
 
@@ -165,6 +168,7 @@ function LinkifiedText({ text, mine }) {
 
 function ImageBubble({ src }) {
   const [open, setOpen] = useState(false);
+  useBackClose(open, () => setOpen(false));
   return (
     <>
       <img
@@ -174,14 +178,16 @@ function ImageBubble({ src }) {
         className="max-w-[220px] sm:max-w-[260px] max-h-72 rounded-xl object-cover cursor-pointer"
         loading="lazy"
       />
-      {open && (
-        <div
-          onClick={() => setOpen(false)}
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-        >
-          <img src={src} alt="attachment full" className="max-w-full max-h-full rounded-lg" />
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            onClick={closeViaBack}
+            className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4"
+          >
+            <img src={src} alt="attachment full" className="max-w-full max-h-full rounded-lg" />
+          </div>,
+          document.body
+        )}
     </>
   );
 }
@@ -247,9 +253,9 @@ function ViewOnceOverlay({ url, onClose }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center p-4"
       style={{ userSelect: 'none', WebkitTouchCallout: 'none' }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -264,7 +270,8 @@ function ViewOnceOverlay({ url, onClose }) {
       >
         Close
       </button>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -276,6 +283,100 @@ function VideoBubble({ src }) {
       playsInline
       className="max-w-[240px] sm:max-w-[280px] max-h-72 rounded-xl"
     />
+  );
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileExtension(name) {
+  if (!name) return 'FILE';
+  const parts = name.split('.');
+  return parts.length > 1 ? parts.pop().toUpperCase().slice(0, 4) : 'FILE';
+}
+
+// Document/file bubble - PDF, TXT, DOCX, ZIP, etc.
+//
+// ⚠️ FIX #1 (wrong/missing format on download): the old code stripped the
+// extension off the filename before asking Cloudinary for an attachment
+// download ("document" instead of "document.zip"). For image/video files
+// Cloudinary re-appends the correct extension itself, so this went unnoticed
+// - but for raw files (zip, docx, xlsx, pptx, csv, txt, rtf, json) Cloudinary
+// does NOT add one back, so the file you saved had no extension at all and
+// your OS had no idea it was a zip. Keeping the real fileName (with its
+// extension) intact fixes that.
+//
+// ⚠️ FIX #2 (download button doing nothing on desktop): a plain <a href=...>
+// link's behaviour depends on the browser correctly reading Cloudinary's
+// Content-Disposition header, which is inconsistent across browsers/CORS
+// setups - on some desktop browsers the click just quietly did nothing.
+// downloadFile() below instead fetches the file as a blob and triggers the
+// save itself via a temporary object URL - this is 100% JS-driven, so it
+// behaves identically on mobile and desktop and for every file type.
+async function downloadFile(url, fileName, onStart, onDone) {
+  onStart?.();
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error('download failed');
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = fileName || 'document';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Give the browser a moment to actually start the save before revoking.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
+  } catch (err) {
+    // Fallback: if the fetch/blob approach is blocked for any reason (e.g.
+    // no network), fall back to a normal navigation so the user still has a
+    // way to get the file.
+    window.open(url, '_blank');
+  } finally {
+    onDone?.();
+  }
+}
+
+function FileBubble({ src, fileName, fileSize, mine }) {
+  const [downloading, setDownloading] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (downloading) return;
+        downloadFile(src, fileName || 'document', () => setDownloading(true), () => setDownloading(false));
+      }}
+      className={`flex items-center gap-3 w-56 sm:w-64 rounded-xl px-3 py-2.5 transition-colors text-left ${
+        mine ? 'bg-void-950/10 hover:bg-void-950/15' : 'bg-void/60 hover:bg-void/80'
+      }`}
+    >
+      <div
+        className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center text-[10px] font-bold tracking-tight ${
+          mine ? 'bg-void-950/15 text-void-950' : 'bg-ember-500/15 text-ember-400'
+        }`}
+      >
+        {fileExtension(fileName)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm truncate">{fileName || 'Document'}</p>
+        {fileSize ? <p className="text-[11px] opacity-60">{formatFileSize(fileSize)}</p> : null}
+      </div>
+      {downloading ? (
+        <svg viewBox="0 0 24 24" width="16" height="16" className="animate-spin opacity-60 shrink-0">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="16" height="16" className="fill-current opacity-60 shrink-0">
+          <path d="M5 20h14v-2H5v2ZM19 9h-4V3H9v6H5l7 7 7-7Z" />
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -424,11 +525,16 @@ function MessageBubble({
   bubbleRef,
 }) {
   const [showPicker, setShowPicker] = useState(false);
+  useBackClose(showPicker, () => setShowPicker(false));
   const [showMenu, setShowMenu] = useState(false);
+  useBackClose(showMenu, () => setShowMenu(false));
   const [viewOnceOverlay, setViewOnceOverlay] = useState(null);
+  useBackClose(!!viewOnceOverlay, () => setViewOnceOverlay(null));
   const [isEditing, setIsEditing] = useState(false);
+  useBackClose(isEditing, () => setIsEditing(false));
   const [editText, setEditText] = useState(message.content);
   const [showReminder, setShowReminder] = useState(false);
+  useBackClose(showReminder, () => setShowReminder(false));
   const isStarred = message.starredBy?.some((id) => id === currentUserId || id?._id === currentUserId);
 
   const handleOpenViewOnce = async (msg) => {
@@ -511,7 +617,7 @@ const handleDoublDeskTap = (e) => {
         <div className="relative max-w-[82%] sm:max-w-[70%] group">
           {showPicker && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowPicker(false)} />
+              <div className="fixed inset-0 z-10" onClick={closeViaBack} />
               <EmojiReactionPicker
                 mine={mine}
                 onPick={(emoji) => {
@@ -549,7 +655,7 @@ const handleDoublDeskTap = (e) => {
     onUnsend={() => onUnsend(message._id)}
     onStar={() => onToggleStar(message._id)}
     onRemind={() => setShowReminder(true)}
-    onClose={() => setShowMenu(false)}
+    onClose={closeViaBack}
   />
 )}
 
@@ -578,6 +684,14 @@ const handleDoublDeskTap = (e) => {
             {message.type === 'video' && message.mediaUrl && (
               <VideoBubble src={mediaUrl(message.mediaUrl)} />
             )}
+            {message.type === 'file' && message.mediaUrl && (
+              <FileBubble
+                src={mediaUrl(message.mediaUrl)}
+                fileName={message.fileName}
+                fileSize={message.fileSize}
+                mine={mine}
+              />
+            )}
             {message.type === 'voice' && message.mediaUrl && (
               <VoiceBubble src={mediaUrl(message.mediaUrl)} duration={message.duration} mine={mine} />
             )}
@@ -599,7 +713,7 @@ const handleDoublDeskTap = (e) => {
                   className="w-full bg-black/10 rounded-lg px-2 py-1 outline-none"
                 />
                 <div className="flex gap-2 mt-1.5 justify-end text-xs">
-                  <button onClick={() => setIsEditing(false)} className="opacity-70 hover:opacity-100">
+                  <button onClick={closeViaBack} className="opacity-70 hover:opacity-100">
                     Cancel
                   </button>
                   <button onClick={handleSaveEdit} className="font-semibold">
@@ -628,16 +742,26 @@ const handleDoublDeskTap = (e) => {
               )}
             </div>
           </div>
+          {/* Anchored inside the same `relative` box as the bubble itself -
+              previously this sat outside it as a sibling, so its
+              `absolute -bottom-3` had no correctly-scoped parent and could
+              render mis-positioned, overlapping the "Seen" label below. */}
+          <ReactionsBar reactions={message.reactions} mine={mine} />
         </div>
       </div>
-      <ReactionsBar reactions={message.reactions} mine={mine} />
       {mine && !isGroup && showSeenLabel && (
-        <p className="text-right text-[10px] text-sky-400/80 mt-0.5 pr-1">Seen</p>
+        <p
+          className={`text-right text-[10px] text-sky-400/80 pr-1 ${
+            message.reactions?.length ? 'mt-4' : 'mt-0.5'
+          }`}
+        >
+          Seen
+        </p>
       )}
       {viewOnceOverlay && (
-        <ViewOnceOverlay url={viewOnceOverlay} onClose={() => setViewOnceOverlay(null)} />
+        <ViewOnceOverlay url={viewOnceOverlay} onClose={closeViaBack} />
       )}
-      {showReminder && <ReminderModal message={message} onClose={() => setShowReminder(false)} />}
+      {showReminder && <ReminderModal message={message} onClose={closeViaBack} />}
     </SwipeToReply>
   );
 }
@@ -747,7 +871,7 @@ export function MessageList({
         const prev = messages[i - 1];
         const showDateSeparator = isDifferentDay(m.createdAt, prev?.createdAt);
         return (
-          <div key={m._id}>
+          <div key={m._id} className={m.reactions?.length ? 'pb-2' : ''}>
             {showDateSeparator && <DateSeparator date={m.createdAt} />}
             <MessageBubble
               message={m}
@@ -834,25 +958,34 @@ export function MessageComposer({
   const [error, setError] = useState('');
   const [viewOnceArmed, setViewOnceArmed] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  useBackClose(showAttachMenu, () => setShowAttachMenu(false));
   const [showPollComposer, setShowPollComposer] = useState(false);
+  useBackClose(showPollComposer, () => setShowPollComposer(false));
   const [showLocationShare, setShowLocationShare] = useState(false);
+  useBackClose(showLocationShare, () => setShowLocationShare(false));
   const [showScheduler, setShowScheduler] = useState(false);
+  useBackClose(showScheduler, () => setShowScheduler(false));
   const fileInputRef = useRef(null);
+  const docInputRef = useRef(null);
   const { recording, seconds, start, stop, cancel } = useVoiceRecorder();
 
   // ✅ Draft messages: restore whatever was half-typed for this conversation,
   // and keep saving as the user types so switching chats never loses it.
+  // Keyed by userId too - without that, a leftover draft from whoever was
+  // previously logged in on this browser/device could reappear (and look
+  // like it came from someone else) the moment a different account opens
+  // the same contact/AI-Assistant chat.
   useEffect(() => {
-    if (!conversationKey) return;
-    const draft = localStorage.getItem(`draft:${conversationKey}`);
+    if (!conversationKey || !currentUserId) return;
+    const draft = localStorage.getItem(`draft:${currentUserId}:${conversationKey}`);
     setText(draft || '');
-  }, [conversationKey]);
+  }, [conversationKey, currentUserId]);
 
   useEffect(() => {
-    if (!conversationKey) return;
-    if (text) localStorage.setItem(`draft:${conversationKey}`, text);
-    else localStorage.removeItem(`draft:${conversationKey}`);
-  }, [text, conversationKey]);
+    if (!conversationKey || !currentUserId) return;
+    if (text) localStorage.setItem(`draft:${currentUserId}:${conversationKey}`, text);
+    else localStorage.removeItem(`draft:${currentUserId}:${conversationKey}`);
+  }, [text, conversationKey, currentUserId]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -880,6 +1013,27 @@ export function MessageComposer({
       // file mimetype - view-once only makes sense for photos.
       onSendMedia({ type: data.type, mediaUrl: data.url, viewOnce: data.type === 'image' && viewOnceArmed });
       setViewOnceArmed(false);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDocPick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setUploading(true);
+    try {
+      const { data } = await chatApi.uploadMedia(file);
+      onSendMedia({
+        type: 'file',
+        mediaUrl: data.url,
+        fileName: data.fileName || file.name,
+        fileSize: data.fileSize || file.size,
+      });
     } catch (err) {
       setError(err.response?.data?.message || 'Upload failed');
     } finally {
@@ -919,16 +1073,16 @@ export function MessageComposer({
         </div>
       )}
       {showPollComposer && (
-        <PollComposerModal onClose={() => setShowPollComposer(false)} onSend={onSendPoll} />
+        <PollComposerModal onClose={closeViaBack} onSend={onSendPoll} />
       )}
       {showLocationShare && (
-        <LocationShareModal onClose={() => setShowLocationShare(false)} onShare={onSendLocation} />
+        <LocationShareModal onClose={closeViaBack} onShare={onSendLocation} />
       )}
       {showScheduler && text.trim() && (
         <ScheduleMessageModal
           text={text.trim()}
           target={scheduleTarget}
-          onClose={() => setShowScheduler(false)}
+          onClose={closeViaBack}
           onScheduled={() => setText('')}
         />
       )}
@@ -986,8 +1140,18 @@ export function MessageComposer({
             </button>
             {showAttachMenu && (
               <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} />
+                <div className="fixed inset-0 z-30" onClick={closeViaBack} />
                 <div className="absolute bottom-12 left-0 z-40 w-44 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAttachMenu(false);
+                      docInputRef.current?.click();
+                    }}
+                    className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+                  >
+                    📄 Document
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -1029,6 +1193,13 @@ export function MessageComposer({
             type="file"
             accept="image/*,video/*"
             onChange={handleFilePick}
+            className="hidden"
+          />
+          <input
+            ref={docInputRef}
+            type="file"
+            accept=".pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.zip,.rtf,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,application/zip,application/rtf"
+            onChange={handleDocPick}
             className="hidden"
           />
           <button
@@ -1107,5 +1278,5 @@ export function MessageComposer({
       )}
     </div>
   );
-}
+        }
 

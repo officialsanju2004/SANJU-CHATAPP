@@ -16,6 +16,7 @@ import ThemeSwitcher from './ThemeSwitcher.jsx';
 import PrivacyVisibilityModal from './PrivacyVisibilityModal.jsx';
 import QRCodeModal from './QRCodeModal.jsx';
 import QRScannerModal from './QRScannerModal.jsx';
+import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 export default function Sidebar({
   tab,
@@ -45,19 +46,33 @@ export default function Sidebar({
 }) {
   const { user, logout } = useAuth();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  useBackClose(confirmingLogout, () => setConfirmingLogout(false));
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  useBackClose(showSettingsMenu, () => setShowSettingsMenu(false));
   const [showLockSettings, setShowLockSettings] = useState(false);
+  useBackClose(showLockSettings, () => setShowLockSettings(false));
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  useBackClose(showDeleteAccount, () => setShowDeleteAccount(false));
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
+  useBackClose(showBlockedUsers, () => setShowBlockedUsers(false));
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  useBackClose(showCreateGroup, () => setShowCreateGroup(false));
   const [showVerifyUsers, setShowVerifyUsers] = useState(false);
+  useBackClose(showVerifyUsers, () => setShowVerifyUsers(false));
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  useBackClose(showGlobalSearch, () => setShowGlobalSearch(false));
   const [showStarred, setShowStarred] = useState(false);
+  useBackClose(showStarred, () => setShowStarred(false));
   const [showScheduled, setShowScheduled] = useState(false);
+  useBackClose(showScheduled, () => setShowScheduled(false));
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
+  useBackClose(showThemeSwitcher, () => setShowThemeSwitcher(false));
   const [showPrivacyVisibility, setShowPrivacyVisibility] = useState(false);
+  useBackClose(showPrivacyVisibility, () => setShowPrivacyVisibility(false));
   const [showMyQR, setShowMyQR] = useState(false);
+  useBackClose(showMyQR, () => setShowMyQR(false));
   const [showQRScanner, setShowQRScanner] = useState(false);
+  useBackClose(showQRScanner, () => setShowQRScanner(false));
 
   const isSanju = user?.username?.toLowerCase() === 'sanju';
 
@@ -69,7 +84,7 @@ export default function Sidebar({
     >
       <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-surface-border flex items-center gap-3 relative">
         <button onClick={onAvatarClick} className="shrink-0" aria-label="Edit profile picture">
-          <Avatar username={user?.username} avatar={user?.avatar} size="md" />
+          <Avatar username={user?.username} avatar={user?.avatar} size="md" preview={false} />
         </button>
         <div className="min-w-0">
           <p className="font-display font-semibold text-sm text-ember-50 truncate">Sanju Chat</p>
@@ -113,7 +128,7 @@ export default function Sidebar({
 
         {showSettingsMenu && (
           <>
-            <div className="fixed inset-0 z-30" onClick={() => setShowSettingsMenu(false)} />
+            <div className="fixed inset-0 z-30" onClick={closeViaBack} />
             <div className="absolute right-4 top-14 z-40 bg-void border border-surface-border rounded-xl shadow-neon-lg overflow-hidden w-56">
               <button
                 onClick={() => {
@@ -245,7 +260,7 @@ export default function Sidebar({
             <p className="text-sm text-ember-50/50 mb-5">Are you sure you want to sign out of Sanju Chat?</p>
             <div className="flex gap-2.5">
               <button
-                onClick={() => setConfirmingLogout(false)}
+                onClick={closeViaBack}
                 className="flex-1 text-sm font-medium py-2 rounded-lg border border-surface-border text-ember-50/70 hover:text-ember-50 hover:bg-void/60 transition-colors"
               >
                 Cancel
@@ -262,47 +277,47 @@ export default function Sidebar({
       )}
 
       {showLockSettings && (
-        <ChatLockSettings enabled={lockEnabled} onClose={() => setShowLockSettings(false)} onChanged={onLockChanged} />
+        <ChatLockSettings enabled={lockEnabled} onClose={closeViaBack} onChanged={onLockChanged} />
       )}
-      {showDeleteAccount && <DeleteAccountModal onClose={() => setShowDeleteAccount(false)} />}
-      {showBlockedUsers && <BlockedUsersModal onClose={() => setShowBlockedUsers(false)} />}
+      {showDeleteAccount && <DeleteAccountModal onClose={closeViaBack} />}
+      {showBlockedUsers && <BlockedUsersModal onClose={closeViaBack} />}
       {showGlobalSearch && (
         <GlobalSearchModal
-          onClose={() => setShowGlobalSearch(false)}
+          onClose={closeViaBack}
           onOpenChat={onOpenChat}
           onSendRequest={onSendRequest}
         />
       )}
       {showStarred && (
         <StarredMessagesModal
-          onClose={() => setShowStarred(false)}
+          onClose={closeViaBack}
           currentUserId={user?.id}
           onJump={onJumpToMessage}
         />
       )}
-      {showScheduled && <ScheduledMessagesList onClose={() => setShowScheduled(false)} />}
-      {showThemeSwitcher && <ThemeSwitcher onClose={() => setShowThemeSwitcher(false)} />}
+      {showScheduled && <ScheduledMessagesList onClose={closeViaBack} />}
+      {showThemeSwitcher && <ThemeSwitcher onClose={closeViaBack} />}
       {showPrivacyVisibility && (
         <PrivacyVisibilityModal
           friends={friendsForGroupCreation}
-          onClose={() => setShowPrivacyVisibility(false)}
+          onClose={closeViaBack}
         />
       )}
-      {showMyQR && <QRCodeModal username={user?.username} onClose={() => setShowMyQR(false)} />}
+      {showMyQR && <QRCodeModal username={user?.username} onClose={closeViaBack} />}
       {showQRScanner && (
         <QRScannerModal
-          onClose={() => setShowQRScanner(false)}
+          onClose={closeViaBack}
           onFound={(username) => {
             setShowQRScanner(false);
             onSendRequest?.(username)?.catch?.(() => {});
           }}
         />
       )}
-      {showVerifyUsers && <VerifyUsersModal onClose={() => setShowVerifyUsers(false)} />}
+      {showVerifyUsers && <VerifyUsersModal onClose={closeViaBack} />}
       {showCreateGroup && (
         <CreateGroupModal
           friends={friendsForGroupCreation}
-          onClose={() => setShowCreateGroup(false)}
+          onClose={closeViaBack}
           onCreated={onGroupCreated}
         />
       )}
@@ -361,7 +376,7 @@ export default function Sidebar({
                 activeKey === c.key ? 'bg-ember-500/10 shadow-neon-inset' : 'hover:bg-void/60 active:bg-void/80'
               }`}
             >
-              <Avatar username={c.title} avatar={c.avatar} online={!c.isGroup && c.isOnline} />
+              <Avatar username={c.title} avatar={c.avatar} online={!c.isGroup && c.isOnline} preview={false} />
               <div className="min-w-0 flex-1">
                 <p className={`text-[15px] sm:text-sm truncate flex items-center gap-1 ${c.unread > 0 ? 'font-semibold' : 'font-medium'} text-ember-50`}>
                   {c.pinned && (

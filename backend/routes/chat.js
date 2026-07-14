@@ -93,7 +93,7 @@ if (!otherUser?.isBot) {
     const page = await Message.find(query)
       .sort({ createdAt: -1 }) // newest first for an efficient index scan...
       .limit(limit)
-      .populate('replyTo', 'content type mediaUrl sender')
+      .populate('replyTo', 'content type mediaUrl fileName sender')
       .lean();
 
    page.reverse();
@@ -141,7 +141,7 @@ router.get('/group/:groupId/messages', requireAuth, async (req, res) => {
     const page = await Message.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('replyTo', 'content type mediaUrl sender')
+      .populate('replyTo', 'content type mediaUrl fileName sender')
       .populate('sender', 'username avatar verified')
       .lean();
 
@@ -297,12 +297,12 @@ router.get('/messages/:otherUserId/around/:messageId', requireAuth, async (req, 
       Message.find({ conversationId: target.conversationId, createdAt: { $lte: target.createdAt }, deletedFor: { $ne: req.userId } })
         .sort({ createdAt: -1 })
         .limit(15)
-        .populate('replyTo', 'content type mediaUrl sender')
+        .populate('replyTo', 'content type mediaUrl fileName sender')
         .lean(),
       Message.find({ conversationId: target.conversationId, createdAt: { $gt: target.createdAt }, deletedFor: { $ne: req.userId } })
         .sort({ createdAt: 1 })
         .limit(15)
-        .populate('replyTo', 'content type mediaUrl sender')
+        .populate('replyTo', 'content type mediaUrl fileName sender')
         .lean(),
     ]);
 
@@ -325,10 +325,15 @@ router.post('/upload', requireAuth, uploadChatMedia.single('media'), async (req,
       ? 'voice'
       : req.file.mimetype.startsWith('video/')
       ? 'video'
-      : 'image';
+      : req.file.mimetype.startsWith('image/')
+      ? 'image'
+      : 'file';
     res.json({
       url: req.file.path,
       type,
+      // Only meaningful for documents, but harmless to always include
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
     });
   } catch (err) {
     res.status(500).json({ message: 'Upload failed' });

@@ -105,6 +105,7 @@ function previewFor(message) {
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
+  if (message.type === 'file') return `📄 ${message.fileName || 'Document'}`;
   if (message.type === 'poll') return `📊 Poll: ${message.poll?.question || ''}`;
   if (message.type === 'location') return message.location?.live ? '📍 Live location' : '📍 Location';
   return message.content;
@@ -145,16 +146,25 @@ async function markGroupSeen(io, viewerId, groupId, group) {
 // Anthropic for a reply, saves it as a message FROM the bot, and pushes it
 // to the human side in real time - same shape as a normal received message.
 async function replyAsAssistant(io, conversationId, userId, botId) {
-  const recent = await Message.find({ conversationId, type: 'text' })
+  // No `type: 'text'` filter here anymore - images, voice notes, videos,
+  // polls, and locations all need to reach the bot too, or it silently has
+  // no idea anything was sent (and previously would just never reply if the
+  // latest message happened to be non-text).
+  const recent = await Message.find({ conversationId, deletedForEveryone: { $ne: true } })
     .sort({ createdAt: -1 })
     .limit(12)
     .lean();
   recent.reverse();
 
   const history = recent.map((m) => ({
-  role: String(m.sender) === String(botId) ? 'assistant' : 'user',
-  content: decryptText(m.content),
-}));
+    role: String(m.sender) === String(botId) ? 'assistant' : 'user',
+    content: decryptText(m.content),
+    type: m.type,
+    mediaUrl: m.mediaUrl,
+    duration: m.duration,
+    poll: m.poll,
+    location: m.location,
+  }));
   if (history.length === 0 || history[history.length - 1].role !== 'user') return;
 
   const replyText = await getAIReply(history);
@@ -192,14 +202,28 @@ export function initSocket(io) {
     socket.on(
       'send_message',
       async (
-        { receiver, groupId, content, type, mediaUrl, duration, replyTo, viewOnce, statusReplyTo, poll, location },
+        {
+          receiver,
+          groupId,
+          content,
+          type,
+          mediaUrl,
+          duration,
+          replyTo,
+          viewOnce,
+          statusReplyTo,
+          poll,
+          location,
+          fileName,
+          fileSize,
+        },
         callback
       ) => {
         try {
           const messageType = type || 'text';
           if (!receiver && !groupId) return callback?.({ error: 'No recipient specified' });
           if (messageType === 'text' && !content?.trim()) return callback?.(null);
-          if (['image', 'video', 'voice'].includes(messageType) && !mediaUrl) {
+          if (['image', 'video', 'voice', 'file'].includes(messageType) && !mediaUrl) {
             return callback?.({ error: 'Missing media' });
           }
           if (messageType === 'poll' && (!poll?.question?.trim() || !poll?.options || poll.options.length < 2)) {
@@ -284,6 +308,8 @@ export function initSocket(io) {
             content: content?.trim() || '',
             mediaUrl: mediaUrl || '',
             duration: duration || 0,
+            fileName: messageType === 'file' ? fileName || '' : '',
+            fileSize: messageType === 'file' ? fileSize || 0 : 0,
             replyTo: replyToId,
             statusReplyTo: statusReplySnapshot,
             poll: pollData,
@@ -293,7 +319,7 @@ export function initSocket(io) {
           });
 
           if (replyToId) {
-            message = await message.populate('replyTo', 'content type mediaUrl sender');
+            message = await message.populate('replyTo', 'content type mediaUrl fileName sender');
           }
           if (group) {
             message = await message.populate('sender', 'username avatar verified');
@@ -634,4 +660,4 @@ export function initSocket(io) {
       scheduleOfflineStamp(io, userId);
     });
   });
-}
+    }

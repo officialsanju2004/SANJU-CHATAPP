@@ -71,12 +71,16 @@ const messageSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'voice', 'poll', 'location'],
+      enum: ['text', 'image', 'video', 'voice', 'poll', 'location', 'file'],
       default: 'text',
     },
     content: { type: String, trim: true, maxlength: 2000, default: '' },
     mediaUrl: { type: String, default: '' },
     duration: { type: Number, default: 0 },
+    // ✅ Document/file messages (PDF, TXT, DOCX, etc.) - the original filename
+    // and byte size, so the bubble can show "report.pdf · 1.2 MB" like WhatsApp.
+    fileName: { type: String, default: '' },
+    fileSize: { type: Number, default: 0 },
     poll: { type: pollSchema, default: null },
     location: { type: locationSchema, default: null },
 

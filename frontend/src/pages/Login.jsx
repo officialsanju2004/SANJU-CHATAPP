@@ -1,14 +1,19 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Reaching /login while already signed in (e.g. by pressing back after a
+  // successful login) should never show the form again - just bounce
+  // straight back into the app.
+  if (user) return <Navigate to="/" replace />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -16,7 +21,10 @@ export default function Login() {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      navigate('/');
+      // replace: true so /login doesn't stay in history - otherwise the
+      // first back-press after logging in would land right back on the
+      // sign-in form instead of exiting the app.
+      navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Could not sign in. Check your details.');
     } finally {

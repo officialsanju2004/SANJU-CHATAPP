@@ -19,7 +19,7 @@ export default function StatusRow({ feed, currentUser, onOpenMine, onAddStatus, 
       >
         <div className="relative">
           <StatusRing hasStatus={!!mine} hasUnseen={mine?.hasUnseen}>
-            <Avatar username={currentUser?.username} avatar={currentUser?.avatar} size="lg" />
+            <Avatar username={currentUser?.username} avatar={currentUser?.avatar} size="lg" preview={false} />
           </StatusRing>
           <button
             onClick={(e) => {
@@ -45,7 +45,7 @@ export default function StatusRow({ feed, currentUser, onOpenMine, onAddStatus, 
           className="flex flex-col items-center gap-1 shrink-0"
         >
           <StatusRing hasStatus hasUnseen={f.hasUnseen}>
-            <Avatar username={f.user.username} avatar={f.user.avatar} size="lg" />
+            <Avatar username={f.user.username} avatar={f.user.avatar} size="lg" preview={false} />
           </StatusRing>
           <span className="text-[11px] text-ember-50/60 max-w-[64px] truncate">{f.user.username}</span>
         </button>

@@ -45,14 +45,40 @@ const avatarStorage = new CloudinaryStorage({
   },
 });
 
+// ⚠️ FIX: resource_type: 'auto' used to let Cloudinary DECIDE the resource
+// type per file. Cloudinary treats PDFs as an "image" resource - which means
+// they go through Cloudinary's image pipeline and hit its megapixel/page-count
+// limits on the free plan. A small text-based PDF picked on a laptop stays
+// under those limits and uploads fine; a multi-page PDF produced by a phone's
+// "scan to PDF" feature (much higher resolution, more pages) blows past them
+// and the upload silently fails - this was the actual cause of
+// "mobile se PDF nahi bhejta, laptop se ho jati hai".
+//
+// Fix: force every non-image/video/audio file (pdf, doc, xls, ppt, zip, csv,
+// txt, json, rtf) through resource_type: 'raw' instead. Raw files are stored
+// and served as plain bytes - no image processing, no limits, no corruption -
+// regardless of which device produced them.
+//
+// We also set use_filename/unique_filename/filename_override so the stored
+// Cloudinary public_id keeps the real name+extension instead of a random
+// hash, which used to make raw files come back with no recognizable format.
+function resourceTypeFor(mimetype) {
+  if (mimetype.startsWith('image/')) return 'image';
+  if (mimetype.startsWith('video/')) return 'video';
+  if (mimetype.startsWith('audio/')) return 'video'; // Cloudinary buckets audio under "video"
+  return 'raw'; // pdf, doc, docx, xls, xlsx, ppt, pptx, csv, txt, json, rtf, zip, etc.
+}
+
 const mediaStorage = new CloudinaryStorage({
   cloudinary,
-  params: {
+  params: async (req, file) => ({
     folder: 'sanju-chat/media',
-    // Chat media can be an image or a voice note - Cloudinary's "auto"
-    // resource_type handles both without needing two separate storages.
-    resource_type: 'auto',
-  },
+    resource_type: resourceTypeFor(file.mimetype),
+    use_filename: true,
+    unique_filename: true,
+    filename_override: file.originalname,
+    access_mode: 'public',
+  }),
 });
 
 const statusStorage = new CloudinaryStorage({
@@ -70,16 +96,55 @@ const imageFilter = (req, file, cb) => {
   cb(null, true);
 };
 
-// Chat media can be an image, a short video, or an audio voice note
+// Chat media can be an image, a short video, an audio voice note, or a
+// document (PDF, TXT, Word, Excel, PowerPoint, CSV, ZIP) sent as a plain file.
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'text/plain',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/csv',
+  'application/zip',
+  'application/json',
+  'application/rtf',
+]);
+
+const DOCUMENT_EXTENSIONS = new Set([
+  'pdf',
+  'txt',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'csv',
+  'zip',
+  'json',
+  'rtf',
+]);
+
+// Mobile browsers (especially Android's document/file-manager pickers) often
+// report a generic or missing mimetype - e.g. "application/octet-stream" or
+// even "" - for perfectly valid PDFs/DOCX/etc. Relying on mimetype alone
+// silently rejected those uploads ("PDF nahi bhejta tha"). We now also
+// accept the file if its extension is a known document type.
 const chatMediaFilter = (req, file, cb) => {
-  if (
-    !file.mimetype.startsWith('image/') &&
-    !file.mimetype.startsWith('audio/') &&
-    !file.mimetype.startsWith('video/')
-  ) {
-    return cb(new Error('Only image, video, or audio files are allowed'));
+  const isImage = file.mimetype.startsWith('image/');
+  const isAudio = file.mimetype.startsWith('audio/');
+  const isVideo = file.mimetype.startsWith('video/');
+  const isKnownDocMime = DOCUMENT_MIME_TYPES.has(file.mimetype);
+  const ext = (file.originalname || '').split('.').pop()?.toLowerCase();
+  const isKnownDocExt = DOCUMENT_EXTENSIONS.has(ext);
+
+  if (isImage || isAudio || isVideo || isKnownDocMime || isKnownDocExt) {
+    return cb(null, true);
   }
-  cb(null, true);
+  cb(new Error('Only image, video, audio, or document files are allowed'));
 };
 
 // Status can be an image or a short video
@@ -98,7 +163,9 @@ export const uploadAvatar = multer({
 
 export const uploadChatMedia = multer({
   storage: mediaStorage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (covers short videos + voice notes)
+  // 75MB - covers short videos/voice notes AND multi-page PDFs scanned on a
+  // phone, which run bigger than a typical laptop-picked PDF.
+  limits: { fileSize: 75 * 1024 * 1024 },
   fileFilter: chatMediaFilter,
 });
 

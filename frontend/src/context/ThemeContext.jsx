@@ -13,7 +13,7 @@ export const THEMES = [
 ];
 
 export function ThemeProvider({ children }) {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [theme, setThemeState] = useState(() => localStorage.getItem('ember_theme') || 'ember');
 
   useEffect(() => {
@@ -33,6 +33,11 @@ export function ThemeProvider({ children }) {
   const setTheme = (next) => {
     setThemeState(next);
     localStorage.setItem('ember_theme', next);
+    // Keep the cached `user` object (ember_user in localStorage) in sync too -
+    // otherwise it stays stale at whatever theme was active at login, and the
+    // effect above overwrites the just-picked theme back to that old value
+    // on the very next refresh.
+    updateUser({ theme: next });
     themeApi.set(next).catch(() => {});
   };
 

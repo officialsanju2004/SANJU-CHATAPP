@@ -31,12 +31,14 @@ import WallpaperPicker, { loadWallpaper } from '../components/WallpaperPicker.js
 import AutoDeleteModal from '../components/AutoDeleteModal.jsx';
 import InChatSearchBar from '../components/InChatSearchBar.jsx';
 import { MessageList, MessageComposer } from '../components/MessageBox.jsx';
+import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 function previewFor(message) {
   if (!message) return '';
   if (message.type === 'image') return message.viewOnce ? '📸 Photo (view once)' : '📷 Photo';
   if (message.type === 'video') return '🎥 Video';
   if (message.type === 'voice') return '🎤 Voice message';
+  if (message.type === 'file') return `📄 ${message.fileName || 'Document'}`;
   if (message.type === 'poll') return `📊 ${message.poll?.question || 'Poll'}`;
   if (message.type === 'location') return message.location?.live ? '📍 Live location' : '📍 Location';
   if (message.deletedForEveryone) return 'This message was deleted';
@@ -51,22 +53,30 @@ export default function Chat() {
   const { startCall, callState, peerUser, setPeerUser } = useCall();
 
   const [tab, setTab] = useState('chats');
+  useBackClose(tab === 'add', () => setTab('chats'));
   const [friends, setFriends] = useState([]);
   const [groups, setGroups] = useState([]);
   const [aiAssistant, setAiAssistant] = useState(null);
   const [activeConversation, setActiveConversation] = useState(null); // { type: 'dm', user } | { type: 'group', group }
+  useBackClose(!!activeConversation, () => setActiveConversation(null));
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [messageError, setMessageError] = useState('');
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  useBackClose(showAvatarModal, () => setShowAvatarModal(false));
   const [replyingTo, setReplyingTo] = useState(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  useBackClose(showGroupInfo, () => setShowGroupInfo(false));
   const [showRenameContact, setShowRenameContact] = useState(false);
+  useBackClose(showRenameContact, () => setShowRenameContact(false));
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  useBackClose(showWallpaperPicker, () => setShowWallpaperPicker(false));
   const [showAutoDelete, setShowAutoDelete] = useState(false);
+  useBackClose(showAutoDelete, () => setShowAutoDelete(false));
   const [showInChatSearch, setShowInChatSearch] = useState(false);
+  useBackClose(showInChatSearch, () => setShowInChatSearch(false));
   const [wallpaper, setWallpaper] = useState(null);
   const [highlightMessageId, setHighlightMessageId] = useState(null);
   const [pinnedChats, setPinnedChats] = useState(user?.pinnedChats || []);
@@ -86,7 +96,9 @@ export default function Chat() {
 
   const [statusFeed, setStatusFeed] = useState([]);
   const [viewingStatus, setViewingStatus] = useState(null);
+  useBackClose(!!viewingStatus, () => setViewingStatus(null));
   const [composingStatus, setComposingStatus] = useState(false);
+  useBackClose(composingStatus, () => setComposingStatus(false));
 
   const activeConversationRef = useRef(activeConversation);
   activeConversationRef.current = activeConversation;
@@ -170,7 +182,7 @@ export default function Chat() {
     setRemoteTyping(false);
     setReplyingTo(null);
     setShowInChatSearch(false);
-    setWallpaper(loadWallpaper(activeKey));
+    setWallpaper(loadWallpaper(activeKey, user._id));
 
     const fetcher =
       activeConversation.type === 'dm'
@@ -470,6 +482,18 @@ export default function Chat() {
     return () => socket.off('friend_request_accepted', handler);
   }, [socket, loadFriends]);
 
+  // The other side removed me as a friend - drop them from my list too and
+  // close the conversation if it was open, same as when I remove them.
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ userId }) => {
+      setFriends((prev) => prev.filter((f) => f._id !== userId));
+      setActiveConversation((prev) => (prev?.type === 'dm' && prev.user._id === userId ? null : prev));
+    };
+    socket.on('friend_removed', handler);
+    return () => socket.off('friend_removed', handler);
+  }, [socket]);
+
   useEffect(() => {
     if (!socket) return;
     const handler = ({ userId, lastSeen }) => {
@@ -513,8 +537,8 @@ export default function Chat() {
   );
 
   const handleSendText = (content) => sendMessage({ type: 'text', content });
-  const handleSendMedia = ({ type, mediaUrl: url, duration, viewOnce }) =>
-    sendMessage({ type, mediaUrl: url, duration, viewOnce });
+  const handleSendMedia = ({ type, mediaUrl: url, duration, viewOnce, fileName, fileSize }) =>
+    sendMessage({ type, mediaUrl: url, duration, viewOnce, fileName, fileSize });
 
   const handleSendPoll = ({ question, options, allowMultiple }) =>
     sendMessage({ type: 'poll', poll: { question, options, allowMultiple } });
@@ -696,6 +720,23 @@ export default function Chat() {
     }
   };
 
+  // Unfriend: removes the Friendship doc on the backend (so messaging is
+  // blocked again until a fresh request is sent + accepted - the existing
+  // Add Friends flow handles re-connecting, no new UI needed there), drops
+  // them from the local friends list, and closes the conversation if it was
+  // the one open.
+  const handleRemoveFriend = async () => {
+    if (!activeUser) return;
+    const id = activeUser._id;
+    try {
+      await friendsApi.remove(id);
+      setFriends((prev) => prev.filter((f) => f._id !== id));
+      setActiveConversation((prev) => (prev?.type === 'dm' && prev.user._id === id ? null : prev));
+    } catch (err) {
+      setActionError(err.response?.data?.message || 'Could not remove friend');
+    }
+  };
+
   const handleTogglePrivacy = async (value) => {
     setPrivacyBlockGroupAdd(value);
     await privacyApi.update(value).catch(() => {});
@@ -705,10 +746,18 @@ export default function Chat() {
     try {
       const { data } = await pinApi.toggle(conversationKey);
       setPinnedChats(data.pinnedChats);
+      // ⚠️ FIX: the AuthContext `user` object (and its localStorage cache,
+      // "ember_user") was only ever set at login/register time and never
+      // touched again after pinning a chat. On refresh, AuthContext just
+      // reads that stale cached user back out of localStorage - so
+      // `pinnedChats` reverted to whatever it was at login, silently
+      // "unpinning" everything pinned since then. Writing the fresh list
+      // into the cached user here keeps it correct across refreshes.
+      updateUser({ pinnedChats: data.pinnedChats });
     } catch (err) {
       // ignore
     }
-  }, []);
+  }, [updateUser]);
 
   const handleNicknameSaved = (nickname) => {
     if (!activeUser) return;
@@ -900,7 +949,7 @@ export default function Chat() {
           activeGroup={activeGroup}
           isOnline={onlineUsers?.includes(activeUser?._id)}
           onDeleteChat={handleDeleteChat}
-          onBack={() => setActiveConversation(null)}
+          onBack={() => (activeConversation ? closeViaBack() : setActiveConversation(null))}
           isTyping={remoteTyping}
           onAudioCall={() => activeUser && startCall(activeUser, 'audio')}
           onVideoCall={() => activeUser && startCall(activeUser, 'video')}
@@ -911,11 +960,12 @@ export default function Chat() {
           onToggleSearch={() => setShowInChatSearch((v) => !v)}
           onOpenWallpaper={() => setShowWallpaperPicker(true)}
           onOpenAutoDelete={() => setShowAutoDelete(true)}
+          onRemoveFriend={handleRemoveFriend}
         />
         {showInChatSearch && activeConversation && (
           <InChatSearchBar
             conversationKey={activeConversation.type === 'dm' ? activeUser._id : `group_${activeGroup._id}`}
-            onClose={() => setShowInChatSearch(false)}
+            onClose={closeViaBack}
             onJump={(m) => {
               setShowInChatSearch(false);
               handleJumpToMessage(m);
@@ -964,7 +1014,7 @@ export default function Chat() {
         />
       </main>
 
-      {showAvatarModal && <AvatarModal onClose={() => setShowAvatarModal(false)} />}
+      {showAvatarModal && <AvatarModal onClose={closeViaBack} />}
       <CallModal />
 
       {viewingStatus && (
@@ -972,20 +1022,20 @@ export default function Chat() {
           entry={viewingStatus}
           isMine={viewingStatus.isMine}
           onClose={() => {
-            setViewingStatus(null);
+            closeViaBack();
             loadStatusFeed();
           }}
           onDeleted={() => loadStatusFeed()}
           onReply={handleStatusReply}
         />
       )}
-      {composingStatus && <StatusComposer onClose={() => setComposingStatus(false)} onPosted={loadStatusFeed} />}
+      {composingStatus && <StatusComposer onClose={closeViaBack} onPosted={loadStatusFeed} />}
 
       {showGroupInfo && activeGroup && (
         <GroupInfoModal
           group={activeGroup}
           friends={friends}
-          onClose={() => setShowGroupInfo(false)}
+          onClose={closeViaBack}
           onUpdated={(updated) => {
             setActiveConversation({ type: 'group', group: updated });
             setGroups((prev) => prev.map((g) => (g._id === updated._id ? { ...g, ...updated } : g)));
@@ -1001,7 +1051,7 @@ export default function Chat() {
       {showRenameContact && activeUser && (
         <RenameContactModal
           friend={activeUser}
-          onClose={() => setShowRenameContact(false)}
+          onClose={closeViaBack}
           onSaved={handleNicknameSaved}
         />
       )}
@@ -1009,7 +1059,8 @@ export default function Chat() {
       {showWallpaperPicker && activeConversation && (
         <WallpaperPicker
           conversationKey={activeKey}
-          onClose={() => setShowWallpaperPicker(false)}
+          userId={user._id}
+          onClose={closeViaBack}
           onChanged={setWallpaper}
         />
       )}
@@ -1018,7 +1069,7 @@ export default function Chat() {
         <AutoDeleteModal
           target={activeConversation}
           currentSeconds={activeUser?.autoDeleteSeconds || activeGroup?.autoDeleteSeconds || 0}
-          onClose={() => setShowAutoDelete(false)}
+          onClose={closeViaBack}
           onChanged={(seconds) => {
             if (activeConversation.type === 'dm') {
               setFriends((prev) => prev.map((f) => (f._id === activeUser._id ? { ...f, autoDeleteSeconds: seconds } : f)));
@@ -1032,4 +1083,5 @@ export default function Chat() {
       )}
     </div>
   );
-}
+      }
+

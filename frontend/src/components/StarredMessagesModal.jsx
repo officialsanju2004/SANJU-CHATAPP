@@ -7,6 +7,7 @@ function previewFor(m) {
   if (m.type === 'image') return '📷 Photo';
   if (m.type === 'video') return '🎥 Video';
   if (m.type === 'voice') return '🎤 Voice message';
+  if (m.type === 'file') return `📄 ${m.fileName || 'Document'}`;
   if (m.type === 'poll') return `📊 ${m.poll?.question || 'Poll'}`;
   if (m.type === 'location') return '📍 Location';
   return m.content;
@@ -51,7 +52,7 @@ export default function StarredMessagesModal({ onClose, currentUserId, onJump })
                   }}
                   className="w-full flex items-start gap-2.5 text-left hover:bg-void/40 rounded-lg p-1 -m-1"
                 >
-                  <Avatar username={other?.username || other?.name} avatar={other?.avatar} size="sm" />
+                  <Avatar username={other?.username || other?.name} avatar={other?.avatar} size="sm" preview={false} />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-ember-400 mb-0.5">{other?.username || other?.name}</p>
                     <p className="text-sm text-ember-50 truncate">{previewFor(m)}</p>

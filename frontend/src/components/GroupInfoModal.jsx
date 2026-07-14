@@ -3,12 +3,14 @@ import { groupsApi } from '../api/axios.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Avatar from './Avatar.jsx';
 import VerifiedBadge from './VerifiedBadge.jsx';
+import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 export default function GroupInfoModal({ group, friends, onClose, onUpdated, onLeft }) {
   const { user } = useAuth();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAddFriends, setShowAddFriends] = useState(false);
+  useBackClose(showAddFriends, () => setShowAddFriends(false));
 
   const isAdmin = group.members.some((m) => {
     const id = m.user?._id || m.user;
@@ -93,7 +95,7 @@ export default function GroupInfoModal({ group, friends, onClose, onUpdated, onL
         {isAdmin && (
           <div className="mb-3">
             <button
-              onClick={() => setShowAddFriends((v) => !v)}
+              onClick={() => (showAddFriends ? closeViaBack() : setShowAddFriends(true))}
               className="text-sm text-ember-400 hover:text-ember-300 font-medium"
             >
               {showAddFriends ? 'Hide' : '+ Add friends'}
@@ -130,3 +132,4 @@ export default function GroupInfoModal({ group, friends, onClose, onUpdated, onL
     </div>
   );
 }
+
