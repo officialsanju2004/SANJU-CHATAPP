@@ -22,6 +22,7 @@ import scheduledRoutes from './routes/scheduled.js';
 
 import { startScheduledMessageWorker } from './utils/scheduleMessageWorker.js';
 import { startReminderScheduler } from './utils/reminderScheduler.js';
+import { startRecoveryEmailReminder } from './utils/recoveryEmailReminder.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -58,6 +59,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 initSocket(io);
 startScheduledMessageWorker(io);
 startReminderScheduler(io);
+startRecoveryEmailReminder(io);
 
 const PORT = process.env.PORT || 5000;
 

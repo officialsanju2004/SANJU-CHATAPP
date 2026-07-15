@@ -16,6 +16,33 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+
+    // ✅ Recovery email. Optional so existing accounts keep working without
+    // one, but new registrations are required to set it (enforced in
+    // routes/auth.js, not here, since old users must be allowed to stay
+    // without one until they add it). `sparse` so many users can have no
+    // email at once without violating the unique index.
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+
+    // ✅ Forgot-password OTP. Only the bcrypt hash of the OTP is stored,
+    // never the OTP itself, exactly like the account password/PIN.
+    passwordReset: {
+      otpHash: { type: String, default: '' },
+      otpExpires: { type: Date, default: null },
+    },
+
+    // ✅ Tracks the last time we nudged this user to add a recovery email,
+    // so the reminder scheduler can space nudges ~24h apart instead of
+    // spamming on every tick.
+    recoveryReminder: {
+      lastSentAt: { type: Date, default: null },
+    },
     avatar: {
       type: String, // full Cloudinary URL, e.g. https://res.cloudinary.com/.../avatars/xxx.jpg
       default: '',
@@ -89,6 +116,14 @@ userSchema.methods.comparePin = function (candidate) {
   return bcrypt.compare(candidate, this.chatLock.pinHash);
 };
 
+// Compares a plaintext OTP against the stored hash and also enforces the
+// expiry window, so callers only need one check for "is this OTP valid".
+userSchema.methods.compareResetOtp = async function (candidate) {
+  if (!this.passwordReset?.otpHash || !this.passwordReset?.otpExpires) return false;
+  if (this.passwordReset.otpExpires.getTime() < Date.now()) return false;
+  return bcrypt.compare(candidate, this.passwordReset.otpHash);
+};
+
 // Is my online status visible to this particular viewer?
 userSchema.methods.isOnlineVisibleTo = function (viewerId) {
   if (!this.privacy?.hideOnlineStatus) return true;
@@ -108,6 +143,8 @@ userSchema.methods.toSafeObject = function () {
     id: this._id,
     username: this.username,
     avatar: this.avatar,
+    email: this.email || '',
+    hasRecoveryEmail: !!this.email,
     chatLockEnabled: !!this.chatLock?.enabled,
     blockGroupAdd: !!this.privacy?.blockGroupAdd,
     verified: !!this.verified,

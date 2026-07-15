@@ -7,6 +7,93 @@ import { emitToUser } from '../socket/index.js';
 
 const router = Router();
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// GET /api/users/me -> the logged-in user's own profile (safe fields only)
+router.get('/me', requireAuth, async (req, res) => {
+  const user = await User.findById(req.userId);
+  if (!user) return res.status(404).json({ message: 'User not found' });
+  res.json(user.toSafeObject());
+});
+
+// PATCH /api/users/username { newUsername, password } -> renames the user's
+// account. The old username is freed up immediately for anyone else to take
+// (usernames aren't reserved after a rename), and the new one is locked in
+// as soon as this succeeds since it goes through the same unique index as
+// registration.
+router.patch('/username', requireAuth, async (req, res) => {
+  try {
+    const { newUsername, password } = req.body;
+    if (!newUsername || !password) {
+      return res.status(400).json({ message: 'New username and your password are required' });
+    }
+
+    const cleaned = newUsername.trim().toLowerCase();
+    if (cleaned.length < 3 || cleaned.length > 24) {
+      return res.status(400).json({ message: 'Username must be 3-24 characters' });
+    }
+    if (!/^[a-z0-9._]+$/.test(cleaned)) {
+      return res.status(400).json({ message: 'Username can only contain letters, numbers, dots and underscores' });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const validPassword = await user.comparePassword(password);
+    if (!validPassword) return res.status(401).json({ message: 'Incorrect password' });
+
+    if (cleaned === user.username) {
+      return res.status(400).json({ message: 'That is already your username' });
+    }
+
+    const taken = await User.findOne({ username: cleaned });
+    if (taken) {
+      return res.status(409).json({ message: 'That username is already taken' });
+    }
+
+    user.username = cleaned;
+    await user.save();
+
+    res.json({ user: user.toSafeObject() });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'That username is already taken' });
+    }
+    res.status(500).json({ message: 'Could not change username' });
+  }
+});
+
+// PATCH /api/users/email { email } -> lets existing accounts (created before
+// email was required) add or update their recovery email. Setting this also
+// silences the periodic "add a recovery email" reminder for this user.
+router.patch('/email', requireAuth, async (req, res) => {
+  try {
+    const email = (req.body.email || '').trim().toLowerCase();
+    if (!email || !EMAIL_RE.test(email)) {
+      return res.status(400).json({ message: 'Please enter a valid email address' });
+    }
+
+    const taken = await User.findOne({ email, _id: { $ne: req.userId } });
+    if (taken) {
+      return res.status(409).json({ message: 'That email is already linked to another account' });
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.email = email;
+    user.recoveryReminder = { lastSentAt: null }; // stop future nudges
+    await user.save();
+
+    res.json({ user: user.toSafeObject() });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'That email is already linked to another account' });
+    }
+    res.status(500).json({ message: 'Could not save recovery email' });
+  }
+});
+
 // POST /api/users/avatar (multipart field name: "avatar")
 router.post('/avatar', requireAuth, uploadAvatar.single('avatar'), async (req, res) => {
   try {
