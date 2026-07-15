@@ -85,15 +85,15 @@ router.post('/login', async (req, res) => {
 // message either way, so callers can't use this to find out which emails
 // are registered.
 router.post('/forgot-password', async (req, res) => {
-  const genericMessage =
-  "If an account exists with that email, we've sent a reset code.";
+  
   try {
     const email = (req.body.email || '').trim().toLowerCase();
     if (!email || !EMAIL_RE.test(email)) {
       return res.status(400).json({ message: 'Please enter a valid email address' });
     }
 
-   
+   const genericMessage =
+  `If an account exists with ${email}, we've sent a reset code. Please check your inbox (and spam folder). The code is valid for 10 minutes.`;
     const user = await User.findOne({ email });
     if (!user) {
       return res.json({ message: genericMessage });
@@ -112,10 +112,10 @@ router.post('/forgot-password', async (req, res) => {
   try {
   const result = await sendOtpEmail(user.email, otp);
 
-  console.log("RESULT:");
-  console.log(JSON.stringify(result, null, 2));
+  // console.log("RESULT:");
+  // console.log(JSON.stringify(result, null, 2));
 
-  return res.json({ message: "OTP sent" });
+  return res.json({ message: `OTP sent!,Please Check Inbox and Spam Folder at ${user.email}` });
 } catch (err) {
   console.error(err);
 

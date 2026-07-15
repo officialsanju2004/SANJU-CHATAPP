@@ -37,9 +37,9 @@ async function sendMail({ to, subject, html, text }) {
 
   const sender = parseFrom(EMAIL_FROM);
 
-  console.log("📧 Sending email...");
-  console.log("FROM:", sender);
-  console.log("TO:", to);
+  // console.log("📧 Sending email...");
+  // console.log("FROM:", sender);
+  // console.log("TO:", to);
 
   const res = await fetch("https://api.mailjet.com/v3.1/send", {
     method: "POST",
@@ -84,7 +84,7 @@ async function sendMail({ to, subject, html, text }) {
 }
 
 export async function sendOtpEmail(to, otp) {
-  console.log("🔐 OTP:", otp);
+  // console.log("🔐 OTP:", otp);
 
   return sendMail({
     to,
