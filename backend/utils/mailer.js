@@ -64,13 +64,14 @@ async function sendMail({ to, subject, html, text }) {
       textContent: text,
     }),
   });
+ const data = await res.json();
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Brevo API error ${res.status}: ${body || res.statusText}`);
-  }
 
-  return res.json();
+if (!res.ok) {
+  throw new Error(`Brevo API error ${res.status}: ${JSON.stringify(data)}`);
+}
+
+return data;
 }
 
 export async function sendOtpEmail(to, otp) {

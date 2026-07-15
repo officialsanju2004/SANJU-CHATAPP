@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import { sendOtpEmail } from '../utils/mailer.js';
+import { error } from 'console';
 
 
 const router = Router();
@@ -83,14 +84,15 @@ router.post('/login', async (req, res) => {
 // message either way, so callers can't use this to find out which emails
 // are registered.
 router.post('/forgot-password', async (req, res) => {
+  const genericMessage =
+  "If an account exists with that email, we've sent a reset code.";
   try {
     const email = (req.body.email || '').trim().toLowerCase();
     if (!email || !EMAIL_RE.test(email)) {
       return res.status(400).json({ message: 'Please enter a valid email address' });
     }
 
-    const genericMessage = 'If an account exists for that email, a reset code has been sent.';
-
+   
     const user = await User.findOne({ email });
     if (!user) {
       return res.json({ message: genericMessage });
@@ -104,11 +106,18 @@ router.post('/forgot-password', async (req, res) => {
     };
     await user.save();
 
-    sendOtpEmail(user.email, otp).catch((err) => console.error('sendOtpEmail failed:', err.message));
 
-    res.json({ message: genericMessage });
+  
+  try {
+  const result = await sendOtpEmail(user.email, otp);
+  
+} catch (err) {
+  console.error("Brevo Error:", err.response?.data || err.message || err);
+}
+
+res.json({ message: "OTP sent" });
   } catch (err) {
-    res.status(500).json({ message: 'Could not process your request right now' });
+    res.status(500).json({ message: 'Could not process your request right now', error:err});
   }
 });
 

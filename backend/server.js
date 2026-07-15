@@ -66,5 +66,7 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   httpServer.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log('BREVO_API_KEY set:', !!process.env.BREVO_API_KEY);
+console.log('EMAIL_FROM:', process.env.EMAIL_FROM);
   });
 });
