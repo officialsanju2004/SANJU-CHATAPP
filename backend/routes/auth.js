@@ -109,11 +109,12 @@ router.post('/forgot-password', async (req, res) => {
 
   
   try {
-  const result = await sendOtpEmail(user.email, otp);
-  
-} catch (err) {
-  console.error("Brevo Error:", err.response?.data || err.message || err);
-}
+    await sendOtpEmail(user.email, otp);
+    return res.json({ message: "OTP sent" });
+  } catch (err) {
+    console.error("Mail Error:", err.message || err);
+    return res.status(500).json({ message: "Could not send OTP email. Please try again." });
+  }
 
 res.json({ message: "OTP sent" });
   } catch (err) {
