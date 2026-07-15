@@ -2,8 +2,9 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
-import { sendOtpEmail } from '../utils/mailer.js';
+
 import { error } from 'console';
+import { sendOtpEmail } from '../utils/mailer.js';
 
 
 const router = Router();
@@ -109,14 +110,19 @@ router.post('/forgot-password', async (req, res) => {
 
   
   try {
-    await sendOtpEmail(user.email, otp);
-    return res.json({ message: "OTP sent" });
-  } catch (err) {
-    console.error("Mail Error:", err.message || err);
-    return res.status(500).json({ message: "Could not send OTP email. Please try again." });
-  }
+  const result = await sendOtpEmail(user.email, otp);
 
-res.json({ message: "OTP sent" });
+  console.log("RESULT:");
+  console.log(JSON.stringify(result, null, 2));
+
+  return res.json({ message: "OTP sent" });
+} catch (err) {
+  console.error(err);
+
+  return res.status(500).json({
+    message: "Could not send OTP email",
+  });
+}
   } catch (err) {
     res.status(500).json({ message: 'Could not process your request right now', error:err});
   }
