@@ -1,25 +1,44 @@
-import nodemailer from 'nodemailer';
+// Sends transactional emails (currently just the forgot-password OTP) via
+// Brevo's HTTP API (https://api.brevo.com) instead of raw SMTP.
+//
+// Why Brevo specifically: Render's free tier blocks outbound SMTP ports
+// (25/465/587), so this needs to go over HTTPS (443) instead - same reason
+// we moved off nodemailer. Unlike some other HTTP-API providers, Brevo lets
+// you send to ANY recipient once you verify a single sender EMAIL ADDRESS
+// (a 6-digit code sent to that inbox) - it does not require you to own and
+// verify a whole domain. That matters here since this project doesn't have
+// a domain.
+//
+// Setup:
+//   1. Create a free account at https://brevo.com (300 emails/day, no card).
+//   2. Settings > Senders, Domains & Dedicated IPs > Senders > Add a sender.
+//      Use any email you already control (e.g. your Gmail) and verify it
+//      via the code Brevo emails you.
+//   3. SMTP & API > API Keys > generate a key, set it as BREVO_API_KEY.
+//   4. Set EMAIL_FROM to that verified sender address, e.g.
+//      EMAIL_FROM="Sanju Chat <godsanju21@gmail.com>"
+//      (Must be the exact address you verified in step 2, or Brevo rejects
+//      the send with a 401/400.)
 
-const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_SECURE } = process.env;
+const { BREVO_API_KEY, EMAIL_FROM } = process.env;
 
-export const mailConfigured = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+export const mailConfigured = Boolean(BREVO_API_KEY && EMAIL_FROM);
 
-let transporter = null;
-
-if (mailConfigured) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT) || 587,
-    // true for port 465 (implicit TLS), false for 587/25 (STARTTLS)
-    secure: SMTP_SECURE ? SMTP_SECURE === 'true' : Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-} else {
+if (!mailConfigured) {
   console.warn(
-    'Email is not configured (missing SMTP_HOST / SMTP_USER / SMTP_PASS). ' +
-      'Forgot-password emails will be skipped. Add SMTP_* vars to backend/.env - ' +
-      'see README for setup with Gmail, Resend, Brevo, etc.'
+    'Email is not configured (missing BREVO_API_KEY and/or EMAIL_FROM). Forgot-password emails ' +
+      'will be skipped. Get a free key at https://brevo.com, verify a sender email, and set both ' +
+      'env vars - see README.'
   );
+}
+
+function parseFrom(fromString) {
+  // Accepts either "Name <email@x.com>" or a bare "email@x.com"
+  const match = /^(.*)<(.+)>$/.exec(fromString || '');
+  if (match) {
+    return { name: match[1].trim().replace(/^"|"$/g, '') || undefined, email: match[2].trim() };
+  }
+  return { email: (fromString || '').trim() };
 }
 
 async function sendMail({ to, subject, html, text }) {
@@ -30,13 +49,28 @@ async function sendMail({ to, subject, html, text }) {
     return { skipped: true };
   }
 
-  return transporter.sendMail({
-    from: SMTP_FROM || `"Sanju Chat" <${SMTP_USER}>`,
-    to,
-    subject,
-    text,
-    html,
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': BREVO_API_KEY,
+      'Content-Type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({
+      sender: parseFrom(EMAIL_FROM),
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+      textContent: text,
+    }),
   });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Brevo API error ${res.status}: ${body || res.statusText}`);
+  }
+
+  return res.json();
 }
 
 export async function sendOtpEmail(to, otp) {
