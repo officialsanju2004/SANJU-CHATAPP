@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import Chat from './pages/Chat.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
@@ -19,6 +20,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route
           path="/"
           element={

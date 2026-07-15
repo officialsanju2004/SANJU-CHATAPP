@@ -21,6 +21,8 @@ import AddFriendsPanel from '../components/AddFriendsPanel.jsx';
 import ChatHeader from '../components/ChatHeader.jsx';
 import AvatarModal from '../components/AvatarModal.jsx';
 import NotificationBanner from '../components/NotificationBanner.jsx';
+import RecoveryEmailBanner from '../components/RecoveryEmailBanner.jsx';
+import RecoveryEmailModal from '../components/RecoveryEmailModal.jsx';
 import CallModal from '../components/CallModal.jsx';
 import PinLockScreen from '../components/PinLockScreen.jsx';
 import StatusViewer from '../components/StatusViewer.jsx';
@@ -53,6 +55,8 @@ export default function Chat() {
   const { startCall, callState, peerUser, setPeerUser } = useCall();
 
   const [tab, setTab] = useState('chats');
+  const [showRecoveryEmailPrompt, setShowRecoveryEmailPrompt] = useState(false);
+  const [recoveryBannerDismissed, setRecoveryBannerDismissed] = useState(false);
   useBackClose(tab === 'add', () => setTab('chats'));
   const [friends, setFriends] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -420,6 +424,21 @@ export default function Chat() {
     socket.on('verification_changed', handler);
     return () => socket.off('verification_changed', handler);
   }, [socket, updateUser]);
+
+  // Real-time: periodic "add a recovery email" nudge (fires ~every 24h,
+  // server-side, only while the account has none). Shows a notification and
+  // pops the modal so it's a one-tap fix, not just a banner they can miss.
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload) => {
+      notify(payload?.title || 'Add a recovery email 🔒', {
+        body: payload?.body || 'Set a recovery email so you can reset your password if you forget it.',
+      });
+      setShowRecoveryEmailPrompt(true);
+    };
+    socket.on('recovery_email_reminder', handler);
+    return () => socket.off('recovery_email_reminder', handler);
+  }, [socket, notify]);
 
   // Real-time: added to / removed from a group
   useEffect(() => {
@@ -978,6 +997,15 @@ export default function Chat() {
           </div>
         )}
         <NotificationBanner permission={permission} onEnable={requestPermission} />
+        <RecoveryEmailBanner
+          hasRecoveryEmail={!!user?.email}
+          dismissed={recoveryBannerDismissed}
+          onDismiss={() => setRecoveryBannerDismissed(true)}
+          onAdd={() => setShowRecoveryEmailPrompt(true)}
+        />
+        {showRecoveryEmailPrompt && (
+          <RecoveryEmailModal onClose={() => setShowRecoveryEmailPrompt(false)} />
+        )}
         <MessageList
           messages={messages}
           currentUserId={user?.id}

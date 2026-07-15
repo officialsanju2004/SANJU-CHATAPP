@@ -16,6 +16,8 @@ import ThemeSwitcher from './ThemeSwitcher.jsx';
 import PrivacyVisibilityModal from './PrivacyVisibilityModal.jsx';
 import QRCodeModal from './QRCodeModal.jsx';
 import QRScannerModal from './QRScannerModal.jsx';
+import ChangeUsernameModal from './ChangeUsernameModal.jsx';
+import RecoveryEmailModal from './RecoveryEmailModal.jsx';
 import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
 
 export default function Sidebar({
@@ -73,6 +75,12 @@ export default function Sidebar({
   useBackClose(showMyQR, () => setShowMyQR(false));
   const [showQRScanner, setShowQRScanner] = useState(false);
   useBackClose(showQRScanner, () => setShowQRScanner(false));
+
+  const [showChangeUsername, setShowChangeUsername] = useState(false);
+  useBackClose(showChangeUsername, () => setShowChangeUsername(false));
+
+  const [showRecoveryEmail, setShowRecoveryEmail] = useState(false);
+  useBackClose(showRecoveryEmail, () => setShowRecoveryEmail(false));
 
   const isSanju = user?.username?.toLowerCase() === 'sanju';
 
@@ -196,6 +204,25 @@ export default function Sidebar({
               <button
                 onClick={() => {
                   setShowSettingsMenu(false);
+                  setShowChangeUsername(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
+              >
+                Change username
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
+                  setShowRecoveryEmail(true);
+                }}
+                className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border flex items-center justify-between"
+              >
+                <span>{user?.email ? 'Recovery email' : 'Add recovery email'}</span>
+                {!user?.email && <span className="w-2 h-2 rounded-full bg-ember-500" />}
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsMenu(false);
                   setShowBlockedUsers(true);
                 }}
                 className="w-full text-left text-sm text-ember-50/80 hover:bg-surface-light px-4 py-2.5 border-t border-surface-border"
@@ -280,6 +307,8 @@ export default function Sidebar({
         <ChatLockSettings enabled={lockEnabled} onClose={closeViaBack} onChanged={onLockChanged} />
       )}
       {showDeleteAccount && <DeleteAccountModal onClose={closeViaBack} />}
+      {showChangeUsername && <ChangeUsernameModal onClose={closeViaBack} />}
+      {showRecoveryEmail && <RecoveryEmailModal onClose={closeViaBack} />}
       {showBlockedUsers && <BlockedUsersModal onClose={closeViaBack} />}
       {showGlobalSearch && (
         <GlobalSearchModal

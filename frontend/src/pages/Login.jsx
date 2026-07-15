@@ -90,9 +90,14 @@ export default function Login() {
             className="w-full mb-4 bg-void border border-surface-border rounded-lg px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-ember-50 placeholder:text-ember-50/25 outline-none focus:border-ember-500 focus:shadow-neon transition-shadow"
           />
 
-          <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
-            Password
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50">
+              Password
+            </label>
+            <Link to="/forgot-password" className="text-xs text-ember-400 hover:text-ember-300 font-medium">
+              Forgot password?
+            </Link>
+          </div>
           <input
             required
             type="password"

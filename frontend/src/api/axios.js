@@ -65,6 +65,15 @@ export const usersApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  me: () => api.get('/users/me'),
+  changeUsername: (newUsername, password) => api.patch('/users/username', { newUsername, password }),
+  setRecoveryEmail: (email) => api.patch('/users/email', { email }),
+};
+
+// ✅ Forgot / reset password (OTP emailed to the recovery email)
+export const authApi = {
+  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (email, otp, newPassword) => api.post('/auth/reset-password', { email, otp, newPassword }),
 };
 
 // ✅ Chat lock (single app-wide PIN)

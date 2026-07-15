@@ -6,6 +6,7 @@ export default function Register() {
   const { register, user } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -22,7 +23,7 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await register(username.trim(), password);
+      await register(username.trim(), password, email.trim());
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Could not create your account.');
@@ -65,6 +66,21 @@ export default function Register() {
             placeholder="Choose a username"
             className="w-full mb-4 bg-void border border-surface-border rounded-lg px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-ember-50 placeholder:text-ember-50/25 outline-none focus:border-ember-500 focus:shadow-neon transition-shadow"
           />
+
+          <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
+            Email
+          </label>
+          <input
+            required
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="w-full mb-4 bg-void border border-surface-border rounded-lg px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-ember-50 placeholder:text-ember-50/25 outline-none focus:border-ember-500 focus:shadow-neon transition-shadow"
+          />
+          <p className="text-xs text-ember-50/35 mb-4 -mt-2.5">
+            Used only to recover your account if you forget your password.
+          </p>
 
           <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
             Password
