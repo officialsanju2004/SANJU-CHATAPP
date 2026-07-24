@@ -25,6 +25,7 @@ import RecoveryEmailBanner from '../components/RecoveryEmailBanner.jsx';
 import RecoveryEmailModal from '../components/RecoveryEmailModal.jsx';
 import CallModal from '../components/CallModal.jsx';
 import PinLockScreen from '../components/PinLockScreen.jsx';
+import AppLoader from '../components/AppLoader.jsx';
 import StatusViewer from '../components/StatusViewer.jsx';
 import StatusComposer from '../components/StatusComposer.jsx';
 import GroupInfoModal from '../components/GroupInfoModal.jsx';
@@ -94,6 +95,7 @@ export default function Chat() {
   const [lockEnabled, setLockEnabled] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [lockChecked, setLockChecked] = useState(false);
+  const [appReady, setAppReady] = useState(false);
 
   const [summaries, setSummaries] = useState({}); // DM: friendId -> { lastMessage, unreadCount }
   const [blockedIds, setBlockedIds] = useState(new Set());
@@ -153,16 +155,25 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    loadFriends();
-    loadGroups();
-    loadIncoming();
-    loadSummaries();
-    loadStatusFeed();
-    loadBlocked();
-    lockApi.status().then(({ data }) => setLockEnabled(data.enabled)).finally(() => setLockChecked(true));
-    privacyApi.get().then(({ data }) => setPrivacyBlockGroupAdd(data.blockGroupAdd)).catch(() => {});
-    aiApi.get().then(({ data }) => setAiAssistant(data)).catch(() => {});
-  }, [loadFriends, loadGroups, loadIncoming, loadSummaries, loadStatusFeed, loadBlocked]);
+    Promise.allSettled([
+      friendsApi.list().then(({ data }) => setFriends(data)),
+      groupsApi.list().then(({ data }) => setGroups(data)),
+      friendsApi.incoming().then(({ data }) => setIncoming(data)),
+      chatApi.summaries().then(({ data }) => {
+        const map = {};
+        data.forEach((s) => {
+          map[s.friendId] = { lastMessage: s.lastMessage, unreadCount: s.unreadCount };
+        });
+        setSummaries(map);
+      }),
+      statusApi.feed().then(({ data }) => setStatusFeed(data)),
+      blockApi.list().then(({ data }) => setBlockedIds(new Set(data.map((u) => u._id)))),
+      lockApi.status().then(({ data }) => setLockEnabled(data.enabled)).finally(() => setLockChecked(true)),
+      privacyApi.get().then(({ data }) => setPrivacyBlockGroupAdd(data.blockGroupAdd)),
+      aiApi.get().then(({ data }) => setAiAssistant(data)),
+    ]).finally(() => setAppReady(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (user?.pinnedChats) setPinnedChats(user.pinnedChats);
@@ -917,7 +928,7 @@ export default function Chat() {
     return [...pinned, ...rest];
   }, [friends, groups, summaries, onlineUsers, aiAssistant, pinnedChats]);
 
-  if (!lockChecked) return null;
+  if (!appReady) return <AppLoader />;
   if (lockEnabled && !unlocked) return <PinLockScreen onUnlock={() => setUnlocked(true)} />;
 
   return (

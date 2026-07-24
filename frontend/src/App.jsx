@@ -3,6 +3,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import Chat from './pages/Chat.jsx';
+import AppLoader from './components/AppLoader.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
 import { CallProvider } from './context/CallContext.jsx';
@@ -10,7 +11,7 @@ import { ThemeProvider } from './context/ThemeContext.jsx';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <AppLoader />;
   return user ? children : <Navigate to="/login" replace />;
 }
 
