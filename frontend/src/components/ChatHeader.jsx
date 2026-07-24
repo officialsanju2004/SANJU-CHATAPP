@@ -3,6 +3,7 @@ import Avatar from './Avatar.jsx';
 import VerifiedBadge from './VerifiedBadge.jsx';
 import { formatLastSeen } from '../utils/time.js';
 import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
+import MarqueeText from './MarqueeText.jsx';
 
 export default function ChatHeader({
   activeUser,
@@ -62,7 +63,7 @@ export default function ChatHeader({
             {title}
             {!isGroup && activeUser.verified && <VerifiedBadge size={14} />}
           </p>
-          <p className="text-xs text-ember-50/40 truncate">{subtitle}</p>
+          <MarqueeText text={subtitle} className="text-xs text-ember-50/40" />
         </div>
       </button>
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { authApi } from '../api/axios.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function ForgotPassword() {
   const { user } = useAuth();
@@ -121,10 +122,9 @@ export default function ForgotPassword() {
               <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
                 New password
               </label>
-              <input
+              <PasswordInput
                 required
                 minLength={6}
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="At least 6 characters"
@@ -134,9 +134,8 @@ export default function ForgotPassword() {
               <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
                 Confirm new password
               </label>
-              <input
+              <PasswordInput
                 required
-                type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="Re-enter new password"

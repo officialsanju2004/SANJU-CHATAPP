@@ -114,6 +114,23 @@
   --glow: 255 179 71;
 }
 
+/* Used by MarqueeText.jsx (e.g. the last-seen line in ChatHeader) - slides
+   from the resting position to `--marquee-distance` (a negative px value
+   set inline per-instance, since it depends on how much the text
+   overflows) and back, pausing at each end for ~2s so it's readable
+   instead of a constant blur of motion. */
+@keyframes marquee-slide {
+  0%, 15% {
+    transform: translateX(0);
+  }
+  50%, 65% {
+    transform: translateX(var(--marquee-distance));
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 @layer base {
   html, body, #root {
     height: 100%;

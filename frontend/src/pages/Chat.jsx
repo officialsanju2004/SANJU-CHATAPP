@@ -66,6 +66,7 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageError, setMessageError] = useState('');
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
@@ -187,6 +188,7 @@ export default function Chat() {
     setReplyingTo(null);
     setShowInChatSearch(false);
     setWallpaper(loadWallpaper(activeKey, user._id));
+    setMessagesLoading(true);
 
     const fetcher =
       activeConversation.type === 'dm'
@@ -198,7 +200,8 @@ export default function Chat() {
         setMessages(data.messages);
         setHasMore(data.hasMore);
       })
-      .catch(() => setMessages([]));
+      .catch(() => setMessages([]))
+      .finally(() => setMessagesLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation]);
 
@@ -1012,6 +1015,7 @@ export default function Chat() {
           onLoadMore={loadOlderMessages}
           hasMore={hasMore}
           loadingMore={loadingMore}
+          isLoading={messagesLoading}
           typing={remoteTyping}
           onReply={setReplyingTo}
           friendUsername={activeUser?.username}

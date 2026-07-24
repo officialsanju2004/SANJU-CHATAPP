@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
+import Logo from '../components/Logo.jsx';
 
 export default function Login() {
   const { login, user } = useAuth();
@@ -37,32 +39,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* Logo mark */}
         <div className="flex flex-col items-center mb-8 animate-floatIn">
-          <div className="relative w-20 h-20 mb-4">
-            <svg viewBox="0 0 100 100" className="w-full h-full">
-              <defs>
-                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="2.2" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <rect x="3" y="3" width="94" height="94" rx="22" fill="#050403" stroke="#ff9500" strokeWidth="3" filter="url(#glow)" />
-              <path
-                d="M50 20a30 30 0 0 1 0 60 30 30 0 0 1-9-1.4L23 84l4.3-16A30 30 0 0 1 50 20Z"
-                fill="none"
-                stroke="#ff9500"
-                strokeWidth="4.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                filter="url(#glow)"
-              />
-              <circle cx="38" cy="50" r="5" fill="#ff9500" filter="url(#glow)" />
-              <circle cx="50" cy="50" r="5" fill="#ff9500" filter="url(#glow)" />
-              <circle cx="62" cy="50" r="5" fill="#ff9500" filter="url(#glow)" />
-            </svg>
-          </div>
+          <Logo size={80} className="mb-4" />
           <h1 className="font-display font-bold text-2xl tracking-tight text-ember-50">
             Sanju Chat
           </h1>
@@ -98,9 +75,8 @@ export default function Login() {
               Forgot password?
             </Link>
           </div>
-          <input
+          <PasswordInput
             required
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"

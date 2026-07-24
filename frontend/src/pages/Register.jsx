@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function Register() {
   const { register, user } = useAuth();
@@ -85,10 +86,9 @@ export default function Register() {
           <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
             Password
           </label>
-          <input
+          <PasswordInput
             required
             minLength={6}
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="At least 6 characters"
@@ -98,9 +98,8 @@ export default function Register() {
           <label className="block text-xs font-medium uppercase tracking-wide text-ember-50/50 mb-1.5">
             Confirm password
           </label>
-          <input
+          <PasswordInput
             required
-            type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             placeholder="Re-enter password"

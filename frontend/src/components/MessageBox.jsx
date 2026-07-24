@@ -14,6 +14,7 @@ import PollComposerModal from './PollComposerModal.jsx';
 import LocationShareModal from './LocationShareModal.jsx';
 import ScheduleMessageModal from './ScheduleMessageModal.jsx';
 import { useBackClose, closeViaBack } from '../hooks/useBackClose.js';
+import Logo from './Logo.jsx';
 
 // Two overlapping checkmarks, WhatsApp-style. Gray = sent, blue = seen.
 function Ticks({ seen }) {
@@ -782,6 +783,7 @@ export function MessageList({
   onLoadMore,
   hasMore,
   loadingMore,
+  isLoading,
   typing,
   onReply,
   friendUsername,
@@ -859,13 +861,24 @@ export function MessageList({
       style={wallpaperStyle}
       className="flex-1 overflow-y-auto scrollbar-ember px-3 sm:px-6 py-4 sm:py-5 space-y-2.5 sm:space-y-3"
     >
-      {loadingMore && (
-        <p className="text-center text-xs text-ember-50/30 py-2">Loading earlier messages…</p>
-      )}
-      {messages.length === 0 && !loadingMore && (
-        <p className="text-center text-sm text-ember-50/30 mt-10">
-          No messages yet — say hello 👋
-        </p>
+      {isLoading ? (
+        <div className="h-full flex flex-col items-center justify-center gap-4">
+          <Logo size={64} animated />
+          <p className="text-sm font-display font-medium text-ember-50/50 tracking-wide">
+            Welcome to Sanju Chat
+          </p>
+        </div>
+      ) : (
+        <>
+          {loadingMore && (
+            <p className="text-center text-xs text-ember-50/30 py-2">Loading earlier messages…</p>
+          )}
+          {messages.length === 0 && !loadingMore && (
+            <p className="text-center text-sm text-ember-50/30 mt-10">
+              No messages yet — say hello 👋
+            </p>
+          )}
+        </>
       )}
       {messages.map((m, i) => {
         const prev = messages[i - 1];
